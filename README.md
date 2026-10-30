@@ -2,10 +2,10 @@
 
 # LismQQ-bot
 
-**在超低配 Linux 上跑起来的 QQ 机器人**
+**在超低配 Linux 系统上跑起来的 QQ 机器人**
 
 NapCat（OneBot v11） ↔ pi-agent-core，单进程、无 native 依赖、ARM64 直接跑。
-已在 **512M/4G 的 WiFi 棒（ARM64）** 上实测跑通。
+已在 **512M/4G 的随身WiFi棒子 debian11（ARM64）** 上实测跑通。
 
 </div>
 
@@ -17,8 +17,8 @@ NapCat（OneBot v11） ↔ pi-agent-core，单进程、无 native 依赖、ARM64
 
 想在低配机器上跑一个能自己聊天、能记人、能接梗的 QQ 机器人，通常会撞上两堵墙：
 
-1. **原版 qq-bridge 依赖 harness / DSH**，而 harness 在 ARM64、低内存设备上装不起来；
-2. 很多机器人框架带 native 依赖（数据库、图像库、编译工具链），在 512MB 内存的棒子上 `npm install` 就失败。
+1. **qq-bridge（或大部分agent桥接） 依赖 harness / DSH**，而 harness 在 ARM64、低内存设备上装不起来；
+2. 很多机器人框架如astrbot等虽然功能丰富但在 512MB 内存的棒子上太过重量级。
 
 LismQQ-bot 把这两件事都绕开了：
 
@@ -41,7 +41,7 @@ LismQQ-bot 把这两件事都绕开了：
 | **装不了 harness 的机器** | 原版 qq-bridge 的替代实现，功能对齐主要能力 |
 | **想低成本试水** | 一台几十块的棒子 + 一个模型 API Key 就能跑 |
 
-不适合：需要表情包斗图、语音、主动戳人、多角色卡等重度拟真玩法的场景（见「已知边界」）。
+不适合：需要语音、多角色卡等重度拟真玩法的场景。
 
 ---
 
@@ -270,11 +270,8 @@ LismQQ-bot/
 
 ---
 
-## 致谢与灵感来源
 
-本项目的部分设计受到 **qq-bridge**（harness 扩展版 QQ 桥接）的启发，包括但不限于：唤醒触发与合并窗口、二代/一代仿真思路、分档唤醒限频、未读三水位、睡前观察与防呆机制、CJK 记忆池等。实现层已重写为基于 pi-agent-core 的进程内版本，不依赖 harness / DSH / SnowLuma。
-
-长期记忆池参考了 LightphpAgent 的 `SharedMemoryPool`（Apache-2.0）实现。
+本项目的部分设计受到 **qq-bridge**（harness 扩展版 QQ 桥接）的启发
 
 ---
 
