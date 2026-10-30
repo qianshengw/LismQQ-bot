@@ -248,8 +248,7 @@ LismQQ-bot/
 ├─ state/                  运行时数据（会话/记忆/账本/锁）
 ├─ config.example.jsonc    配置模板
 ├─ README.md               本文件
-├─ README-V.md             项目详细技术文档
-└─ FULL-AUDIT.md           历史功能审计清单
+└─ README-V.md             项目详细技术文档
 ```
 
 ---
@@ -257,7 +256,6 @@ LismQQ-bot/
 ## 文档
 
 - **[README-V.md](README-V.md)** — 项目详细技术文档（架构 / 模块 / 数据流 / 仿真 / 记忆 / 安全 / 配置 / 部署）
-- **[FULL-AUDIT.md](FULL-AUDIT.md)** — 历史功能清单与审查记录（部分结论已过时，以代码为准）
 
 ---
 
@@ -269,6 +267,14 @@ LismQQ-bot/
 - 同一会话的回合严格串行；跨会话并发
 - 未实现：表情包斗图、语音、主动戳人、多角色卡、斜杠命令
 - 控制台免鉴权，**不要暴露到公网**
+
+---
+
+## 致谢与灵感来源
+
+本项目的部分设计受到 **qq-bridge**（harness 扩展版 QQ 桥接）的启发，包括但不限于：唤醒触发与合并窗口、二代/一代仿真思路、分档唤醒限频、未读三水位、睡前观察与防呆机制、CJK 记忆池等。实现层已重写为基于 pi-agent-core 的进程内版本，不依赖 harness / DSH / SnowLuma。
+
+长期记忆池参考了 LightphpAgent 的 `SharedMemoryPool`（Apache-2.0）实现。
 
 ---
 
