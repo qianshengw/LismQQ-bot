@@ -1,0 +1,30 @@
+[Unit]
+Description=LismQQ-bot (natcat OneBot <-> pi-agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 改成你的部署路径与用户（不要用 root——服务监听 0.0.0.0）
+User=qqbot
+Group=qqbot
+WorkingDirectory=/opt/lismqq-bot
+ExecStart=/usr/bin/node src/bridge.js
+Restart=on-failure
+RestartSec=5
+# 单实例锁主动退出码 2 = 已有实例在跑，不应触发重启风暴
+SuccessExitStatus=2
+# 模型 key 放这里（避免写进 config.json）；启用前取消注释
+#Environment=DEEPSEEK_API_KEY=sk-...
+#Environment=LIVE_API_KEY=ak-...
+
+# 资源上限（按设备调整）
+MemoryMax=512M
+CPUQuota=80%
+
+# 加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

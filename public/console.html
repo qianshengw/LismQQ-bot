@@ -1,0 +1,1314 @@
+<!doctype html>
+<!-- UI-BUILD: 2026-01-30-r3 | 8 views + triggers + busy/abort + chart fix | NO-AUTH -->
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>QQ BRIDGE // PI</title>
+<script>
+  // 全局错误捕获（在一切之前）：任何 JS 错误直接显示在 LOADING 面板上
+  window.onerror = function (msg, src, line, col) {
+    var el = document.getElementById('bootLoading');
+    if (el) {
+      el.innerHTML = '<div style="text-align:center;max-width:560px;padding:20px;font-family:monospace">' +
+        '<div style="color:#e63b2e;font-size:14px;margin-bottom:12px">JS ERROR</div>' +
+        '<div style="color:#f2efe6;font-size:11px;text-align:left;line-height:1.8">' +
+        '<b style="color:#e63b2e">' + msg + '</b><br>at ' + (src || '?').split('/').pop() + ':' + line +
+        '<br><br>这通常是浏览器缓存了旧版 HTML。请按 <b style="color:#e63b2e">Ctrl+Shift+R</b> 强制刷新。</div></div>';
+    }
+    return false; // 不阻止控制台报错
+  };
+  // 主题引导（先于样式，避免闪烁）。本机访问免令牌；远程 API 访问要求令牌。
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem('qq-console-theme'); } catch (e) {}
+    document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+  })();
+</script>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   千禧年 × 构成主义 设计系统
+   方块 · 粗描边 · 实心投影 · 红黑米白 · 等宽数字
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --ink: #0d0d0b;
+  --ink-2: #171714;
+  --ink-3: #232320;
+  --paper: #f2efe6;
+  --paper-2: #e4dfd0;
+  --red: #e63b2e;
+  --red-dim: #b32c22;
+  --blue: #2b5bff;
+  --yellow: #f5c518;
+  --dim: #8b877a;
+  --line: var(--paper);
+  --bg: var(--ink);
+  --fg: var(--paper);
+  --panel: var(--ink-2);
+  --panel-2: var(--ink-3);
+  --shadow: var(--paper);
+  --grid: rgba(242, 239, 230, .07);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  --sans: "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif;
+  --bd: 3px solid var(--line);
+}
+[data-theme="light"] {
+  --bg: var(--paper);
+  --fg: var(--ink);
+  --panel: #fffdf7;
+  --panel-2: var(--paper-2);
+  --line: var(--ink);
+  --shadow: var(--ink);
+  --grid: rgba(13, 13, 11, .07);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--sans); font-size: 13px; line-height: 1.55;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--red); color: #fff; }
+[x-cloak] { display: none !important; }
+.boot-loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #0d0d0b; z-index: 999;
+}
+.boot-loading span {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; letter-spacing: .3em;
+  color: #e63b2e; text-transform: uppercase; animation: bootblink 1s steps(2) infinite;
+}
+@keyframes bootblink { 50% { opacity: .2; } }
+body.ready .boot-loading { display: none; }
+
+/* 布局：黑底侧栏 + 米白主区 */
+.shell { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+
+/* ── 侧栏 ── */
+.rail {
+  background: var(--ink); color: var(--paper);
+  border-right: var(--bd); padding: 0; display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+[data-theme="light"] .rail { background: var(--ink); color: var(--paper); }
+.brand {
+  padding: 18px 16px 14px; border-bottom: 3px solid var(--paper);
+  position: relative;
+}
+.brand b { display: block; font-size: 19px; letter-spacing: -.02em; line-height: 1.05; font-weight: 800; }
+.brand b span { color: var(--red); }
+.brand small {
+  display: inline-block; margin-top: 7px; font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: .16em; color: var(--paper); opacity: .62; text-transform: uppercase;
+}
+.brand i {
+  position: absolute; right: 0; top: 0; width: 26px; height: 26px;
+  background: var(--red);
+}
+.nav { padding: 10px 0 0; }
+.nav a {
+  display: grid; grid-template-columns: 26px 1fr; align-items: center;
+  gap: 8px; padding: 9px 14px; color: var(--paper); text-decoration: none;
+  font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+  border-left: 5px solid transparent; cursor: pointer;
+}
+.nav a em {
+  font-family: var(--mono); font-size: 9.5px; font-style: normal; opacity: .5;
+}
+.nav a:hover { background: var(--ink-3); }
+.nav a.on { background: var(--red); border-left-color: var(--paper); color: #fff; }
+.nav a.on em { opacity: .85; }
+.rail-foot {
+  margin-top: auto; padding: 12px 14px; border-top: 3px solid var(--paper);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; opacity: .6;
+  text-transform: uppercase;
+}
+.theme-btn {
+  margin: 0 14px 12px; padding: 7px 10px; background: none; color: var(--paper);
+  border: 2px solid var(--paper); font-family: var(--mono); font-size: 10px;
+  letter-spacing: .12em; cursor: pointer; text-transform: uppercase;
+}
+.theme-btn:hover { background: var(--paper); color: var(--ink); }
+
+/* ── 主区 ── */
+.main { padding: 0 0 60px; min-width: 0; }
+.topbar {
+  display: flex; align-items: stretch; gap: 0; border-bottom: var(--bd);
+  background: var(--panel); position: sticky; top: 0; z-index: 30;
+}
+.topbar h1 {
+  margin: 0; padding: 13px 22px; font-size: 17px; font-weight: 800;
+  letter-spacing: -.01em; display: flex; align-items: center; gap: 10px;
+  border-right: var(--bd); flex: 0 0 auto;
+}
+.topbar h1 u {
+  font-family: var(--mono); font-size: 9.5px; text-decoration: none;
+  background: var(--red); color: #fff; padding: 2px 6px; letter-spacing: .1em;
+}
+.stat-strip {
+  display: flex; align-items: center; gap: 0; flex: 1; overflow: hidden;
+  font-family: var(--mono); font-size: 10.5px;
+}
+.stat-strip .item {
+  padding: 0 14px; border-right: 2px solid var(--line); height: 100%;
+  display: flex; align-items: center; gap: 6px; white-space: nowrap; opacity: .85;
+}
+.stat-strip .item b { color: var(--red); font-weight: 700; }
+.conn-block {
+  display: flex; align-items: center; gap: 8px; padding: 0 16px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em;
+  text-transform: uppercase; border-left: var(--bd); font-weight: 700;
+}
+.conn-block .sq { width: 10px; height: 10px; background: var(--dim); }
+.conn-block.ok .sq { background: #2ee66b; box-shadow: 0 0 10px #2ee66b; }
+.conn-block.warn .sq { background: var(--yellow); box-shadow: 0 0 10px var(--yellow); }
+.conn-block.err .sq { background: var(--red); box-shadow: 0 0 12px var(--red); }
+
+.view { padding: 22px; display: none; }
+.view.on { display: block; }
+
+/* ── 方块卡片 ── */
+.block {
+  background: var(--panel); border: var(--bd);
+  box-shadow: 6px 6px 0 var(--shadow);
+  margin-bottom: 20px; position: relative;
+}
+.block > header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-bottom: var(--bd);
+  font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+}
+.block > header .tag {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 400;
+  letter-spacing: .08em; background: var(--red); color: #fff; padding: 2px 7px;
+  text-transform: none;
+}
+.block > .body { padding: 14px; }
+.block.flat { box-shadow: none; }
+.grid { display: grid; gap: 18px; }
+.g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g-auto { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+@media (max-width: 900px) { .g-2, .g-3 { grid-template-columns: 1fr; } }
+
+/* ── 指标块（构成主义色块） ── */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 0; }
+.metric {
+  border-right: var(--bd); border-bottom: var(--bd); padding: 13px 15px;
+  position: relative; background: var(--panel-2); min-width: 0;
+}
+.metric:last-child { border-right: none; }
+.metric .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
+  text-transform: uppercase; opacity: .55; margin-bottom: 5px;
+}
+.metric .v {
+  font-family: var(--mono); font-size: 24px; font-weight: 700; line-height: 1.08;
+  letter-spacing: -.03em; word-break: break-all;
+}
+.metric .v.sm { font-size: 14px; }
+.metric .v.red { color: var(--red); }
+.metric .v.blue { color: var(--blue); }
+.metric::after {
+  content: ''; position: absolute; right: 0; top: 0;
+  width: 0; height: 0; border-top: 14px solid var(--line);
+  border-left: 14px solid transparent; opacity: .22;
+}
+
+/* ── 表格 ── */
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  text-align: left; padding: 7px 10px; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .12em; text-transform: uppercase; opacity: .6;
+  border-bottom: 2px solid var(--line); white-space: nowrap;
+}
+td { padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 22%, transparent); vertical-align: middle; }
+tbody tr:hover { background: color-mix(in srgb, var(--line) 7%, transparent); }
+td.mono, .mono { font-family: var(--mono); font-size: 11px; }
+code {
+  font-family: var(--mono); font-size: 11px; background: var(--panel-2);
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent);
+  padding: 1px 5px;
+}
+
+/* ── 控件 ── */
+button.btn {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+  padding: 6px 12px; background: var(--panel); color: var(--fg);
+  border: 2px solid var(--line); cursor: pointer; text-transform: uppercase;
+  box-shadow: 3px 3px 0 var(--shadow); font-weight: 700;
+}
+button.btn:hover { background: var(--line); color: var(--bg); }
+button.btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow); }
+button.btn.primary { background: var(--red); border-color: var(--red); color: #fff; box-shadow: 3px 3px 0 var(--shadow); }
+button.btn.primary:hover { background: var(--red-dim); border-color: var(--red-dim); color: #fff; }
+button.btn.ghost { box-shadow: none; border-width: 2px; opacity: .8; }
+button.mini { padding: 3px 8px; font-size: 9.5px; box-shadow: 2px 2px 0 var(--shadow); }
+input[type=text], input[type=number], input[type=datetime-local], select, textarea {
+  width: 100%; padding: 7px 9px; background: var(--bg); color: var(--fg);
+  border: 2px solid var(--line); font-family: var(--mono); font-size: 11.5px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--red); box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 30%, transparent); }
+input[type=checkbox] { accent-color: var(--red); width: 14px; height: 14px; }
+label.f { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; opacity: .6; display: block; margin-bottom: 4px; }
+.row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+.row > .f1 { flex: 1; min-width: 140px; }
+.row > .f2 { flex: 2; min-width: 220px; }
+.row > .fx { flex: 0 0 auto; }
+
+/* ── 标签 ── */
+.pill {
+  display: inline-block; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .1em; text-transform: uppercase; padding: 2px 7px;
+  border: 1.5px solid currentColor; white-space: nowrap;
+}
+.pill.g { color: #2ee66b; }
+.pill.b { color: var(--blue); }
+.pill.r { color: var(--red); }
+.pill.y { color: var(--yellow); }
+.pill.n { opacity: .55; }
+.pill.solid { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* ── 空态 ── */
+.empty {
+  padding: 30px 14px; text-align: center; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; opacity: .38;
+}
+
+/* ── 日志行 ── */
+.logline {
+  display: grid; grid-template-columns: 74px 88px 1fr; gap: 10px;
+  padding: 5px 0; border-bottom: 1px dashed color-mix(in srgb, var(--line) 18%, transparent);
+  font-size: 11.5px; align-items: baseline;
+}
+.logline time, .logline b { font-family: var(--mono); font-size: 9.5px; opacity: .5; }
+.logline b { color: var(--red); opacity: .8; }
+
+/* ── 图表 ── */
+.chart-wrap { padding: 6px 0 0; }
+.chart-wrap svg { display: block; width: 100%; height: 190px; }
+.chart-legend {
+  display: flex; gap: 16px; font-family: var(--mono); font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: .1em; opacity: .55; padding: 8px 2px 0;
+}
+.chart-legend i { display: inline-block; width: 9px; height: 9px; background: var(--red); margin-right: 5px; }
+
+/* ── toast ── */
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
+  background: var(--red); color: #fff; border: 3px solid var(--paper);
+  box-shadow: 5px 5px 0 rgba(0,0,0,.45); padding: 9px 20px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  opacity: 0; pointer-events: none; transition: opacity .16s, transform .16s;
+  z-index: 100; max-width: 80vw;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.bad { background: var(--ink); border-color: var(--red); color: var(--red); }
+
+/* ── 人设编辑器 ── */
+textarea.editor {
+  min-height: 320px; resize: vertical; line-height: 1.7; font-size: 12px;
+}
+.char-count { font-family: var(--mono); font-size: 10px; opacity: .55; }
+.char-count.over { color: var(--red); opacity: 1; }
+
+/* ── 分割条 ── */
+.split { height: 3px; background: var(--red); margin: 0; border: none; }
+.notice {
+  border-left: 6px solid var(--red); background: color-mix(in srgb, var(--red) 10%, transparent);
+  padding: 9px 12px; font-size: 11.5px; margin-bottom: 14px;
+}
+.notice.blue { border-left-color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
+.kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; font-size: 11.5px; align-items: baseline; }
+.kv dt { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; opacity: .5; }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+pre.mem {
+  white-space: pre-wrap; font-family: var(--mono); font-size: 11px; line-height: 1.7;
+  background: var(--bg); border: 2px solid color-mix(in srgb, var(--line) 30%, transparent);
+  padding: 11px; margin: 0; max-height: 260px; overflow: auto;
+}
+.wake-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}.wake-card{border:1px solid var(--line,#444);border-radius:10px;padding:12px;min-width:0}.wake-card p{font-size:12px;opacity:.75;line-height:1.6;margin:6px 0 12px}.wake-card .row{display:grid;grid-template-columns:1fr 1fr}.wake-card input{width:100%;min-width:0;box-sizing:border-box}@media(max-width:640px){.wake-grid{grid-template-columns:1fr}}</style>
+</head>
+<body>
+<div class="boot-loading" id="bootLoading"><span>LOADING…</span></div>
+<div class="shell" x-data="app()" x-cloak>
+
+  <!-- ── 侧栏 ── -->
+  <aside class="rail">
+    <div class="brand">
+      <b>QQ BRIDGE<br><span>// PI</span></b>
+      <small>NATCAT · ONEBOT v11</small>
+      <i></i>
+    </div>
+    <nav class="nav">
+      <template x-for="v in views" :key="v.id">
+        <a @click="go(v.id)" :class="{ on: view === v.id }">
+          <em x-text="v.no"></em><span x-text="v.label"></span>
+        </a>
+      </template>
+    </nav>
+    <button class="theme-btn" @click="toggleTheme()" x-text="theme === 'dark' ? '◧ 浅色模式' : '◨ 深色模式'"></button>
+    <div class="rail-foot" x-text="'LOCAL / NO AUTH'"></div>
+  </aside>
+
+  <!-- ── 主区 ── -->
+  <main class="main">
+    <div class="topbar">
+      <h1><u x-text="currentView.no"></u><span x-text="currentView.label"></span></h1>
+      <div class="stat-strip">
+        <div class="item">BOT <b x-text="status.myQQId || '—'"></b></div>
+        <div class="item">SESS <b x-text="(status.sessions || []).length"></b></div>
+        <div class="item">MEM <b x-text="status.memory ? status.memory.count : '—'"></b></div>
+        <div class="item">TOK <b x-text="fmtTokens(totalTokens())"></b></div>
+        <div class="item">¥ <b x-text="num(status.ledger?.cost || 0)"></b></div>
+      </div>
+      <div class="conn-block" :class="connClass()">
+        <span class="sq"></span><span x-text="connLabel()"></span>
+      </div>
+    </div>
+
+    <!-- ═══ 01 总览 ═══ -->
+    <section class="view" :class="{ on: view === 'overview' }">
+      <div class="block">
+        <header>仿真开关与接管模式</header><div class="body">
+        <template x-for="v in ['v1','v2']" :key="v"><div class="row"><label><input type="checkbox" x-model="features[v].enabled"> <span x-text="v === 'v1' ? '一代启用' : '二代启用'"></span></label><select x-model="features[v].mode"><option value="off">记录状态（不接管消息）</option><option :value="v">接管消息</option></select></div></template>
+        <button class="btn primary" @click="saveFeatures()">保存并生效</button><div class="notice" x-text="msg.features || '当前值来自服务器运行状态；关闭后不运行该代调度器。'"></div></div></div><div class="block"><header>核心指标 <span class="tag" x-text="tierLabel()"></span></header>
+        <div class="metrics">
+          <div class="metric"><div class="k">机器人 QQ</div><div class="v red" x-text="status.myQQId || '—'"></div></div>
+          <div class="metric"><div class="k">活跃会话</div><div class="v" x-text="(status.sessions || []).length"></div></div>
+          <div class="metric"><div class="k">记忆条数</div><div class="v" x-text="status.memory ? status.memory.count : '关闭'"></div></div>
+          <div class="metric"><div class="k">Token 总量</div><div class="v blue" x-text="fmtTokens(totalTokens())"></div></div>
+          <div class="metric"><div class="k">累计花费</div><div class="v red" x-text="'¥' + num(status.ledger?.cost || 0)"></div></div>
+          <div class="metric"><div class="k">当前时段</div><div class="v sm" x-text="tierLabel()"></div></div>
+        </div>
+      </div>
+
+      <div class="grid g-2">
+        <div class="block">
+          <header>模型与端点 <span class="tag" x-text="model.provider || '—'"></span></header>
+          <div class="body">
+            <dl class="kv">
+              <dt>模型</dt><dd x-text="model.model || '—'"></dd>
+              <dt>端点</dt><dd x-text="model.baseUrl || '—'"></dd>
+              <dt>Key</dt><dd x-text="model.apiKeyMasked || (model.hasApiKey ? '已配置' : '未配置')"></dd>
+              <dt>思考</dt><dd x-text="model.thinkingLevel || 'off'"></dd>
+            </dl>
+            <hr class="split" style="margin:12px 0">
+            <div class="row">
+              <div class="f1"><label class="f">内置模型</label>
+                <select x-model="modelForm.preset" @change="pickPreset()">
+                  <option value="">— 选择 —</option>
+                  <template x-for="b in model.builtins || []" :key="b">
+                    <option :value="b" x-text="b"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="f2"><label class="f">自定义模型 ID</label>
+                <input type="text" x-model="modelForm.model" placeholder="LongCat-2.5-Preview">
+              </div>
+            </div>
+            <div class="row">
+              <div class="f2"><label class="f">baseUrl</label>
+                <input type="text" x-model="modelForm.baseUrl" placeholder="https://api.example.com/v1">
+              </div>
+              <div class="f2"><label class="f">apiKey（留空=沿用）</label>
+                <input type="text" x-model="modelForm.apiKey" placeholder="ak_...">
+              </div>
+            </div>
+            <div class="row">
+              <div class="f1"><label class="f">最大输出 Token</label><input type="number" min="64" max="32768" x-model.number="modelForm.maxTokens"></div>
+              <div class="f1"><label class="f">provider</label><input x-model="modelForm.provider"></div>
+              <div class="f1"><label class="f">思考强度</label>
+                <select x-model="modelForm.thinkingLevel">
+                  <option value="off">off</option><option value="low">low</option>
+                  <option value="medium">medium</option><option value="high">high</option>
+                </select>
+              </div>
+              <div class="fx"><button class="btn primary" @click="saveModel()">保存并生效</button></div>
+            </div>
+            <div class="notice blue" x-show="msg.model" x-text="msg.model"></div>
+          </div>
+        </div>
+
+        <div class="block">
+          <header>运行参数 <span class="tag">即时生效</span></header>
+          <div class="body">
+            <div class="row"><div class="f2"><label class="f">收到消息回执（留空关闭）</label>
+              <input type="text" x-model="runtimeForm.ackMessage" placeholder="收到～"></div></div>
+            <div class="row">
+              <div class="f1"><label class="f">连发间隔 ms</label><input type="number" x-model.number="runtimeForm.sendDelayMs"></div>
+              <div class="f1"><label class="f">单轮上限 秒</label><input type="number" x-model.number="runtimeForm.maxTurnSeconds"></div>
+              <div class="f1"><label class="f">历史条数上限</label><input type="number" x-model.number="runtimeForm.historyMaxMessages"></div>
+            </div>
+            <div class="row">
+              <div class="f1"><label class="f">历史摘要压缩</label>
+                <select x-model="runtimeForm.historySummarize">
+                  <option :value="true">开启（推荐）</option><option :value="false">关闭（硬丢）</option>
+                </select>
+              </div>
+              <div class="fx"><button class="btn primary" @click="saveRuntime()">保存</button></div>
+            </div>
+            <div class="notice" x-show="msg.runtime" x-text="msg.runtime"></div>
+            <dl class="kv" style="margin-top:6px">
+              <dt>监听</dt><dd x-text="(runtime.internalHost || '0.0.0.0') + ':' + (runtime.internalPort || '')"></dd>
+              <dt>协议端</dt><dd x-text="runtime.wsUrl || '—'"></dd>
+              <dt>仿真</dt><dd x-text="simText()"></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 02 会话 ═══ -->
+    <section class="view" :class="{ on: view === 'sessions' }">
+      <div class="block">
+        <header>会话列表 <span class="tag" x-text="(status.sessions || []).length + ' 个'"></span></header>
+        <div class="body" x-show="!(status.sessions || []).length"><div class="empty">暂无会话 · 收到消息后出现</div></div>
+        <table x-show="(status.sessions || []).length">
+          <thead><tr><th>会话 KEY</th><th>类型</th><th>状态</th><th>Token</th><th>花费</th><th>请求</th><th style="width:150px"></th></tr></thead>
+          <tbody>
+            <template x-for="key in (status.sessions || [])" :key="key">
+              <tr>
+                <td class="mono" x-text="key"></td>
+                <td><span class="pill" :class="key.startsWith('g') ? 'g' : 'b'" x-text="key.startsWith('g') ? '群' : '私聊'"></span></td>
+                <td class="mono" x-text="fmtTokens(sessionUsage(key).totalTokens)"></td>
+                <td class="mono" x-text="'¥' + num(sessionUsage(key).cost || 0)"></td>
+                <td class="mono" x-text="sessionUsage(key).requests || 0"></td>
+                <td>
+                  <span class="pill" :class="(status.sessionBusy || {})[key] ? 'y' : 'n'" x-text="(status.sessionBusy || {})[key] ? '运行中' : '空闲'"></span>
+                  <button class="btn mini" @click="abortSession(key)" x-show="(status.sessionBusy || {})[key]">中断</button>
+                  <button class="btn mini" @click="retire(key)">退役</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══ 03 令牌与花费 ═══ -->
+    <section class="view" :class="{ on: view === 'usage' }">
+      <div class="block">
+        <header>总量 <span class="tag" x-text="usage.nowTier === 'peak' ? '高峰 ×2' : '空闲时段'"></span></header>
+        <div class="metrics">
+          <div class="metric"><div class="k">输入（未命中）</div><div class="v" x-text="fmtTokens(usage.totals?.input)"></div></div>
+          <div class="metric"><div class="k">缓存命中</div><div class="v blue" x-text="fmtTokens(usage.totals?.cacheRead)"></div></div>
+          <div class="metric"><div class="k">输出</div><div class="v" x-text="fmtTokens(usage.totals?.output)"></div></div>
+          <div class="metric"><div class="k">累计花费</div><div class="v red" x-text="'¥' + num(usage.totals?.cost || 0)"></div></div>
+          <div class="metric"><div class="k">请求次数</div><div class="v" x-text="usage.totals?.requests || 0"></div></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <header>消耗走势 · 24H</header>
+        <div class="body chart-wrap">
+          <div x-show="!(series.buckets || []).length"><div class="empty">24 小时内无用量</div></div>
+          <div x-show="(series.buckets || []).length" x-html="chartSvg()"></div>
+          <div class="chart-legend" x-show="(series.buckets || []).length"><span><i></i>TOKEN / 时间桶</span></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <header>按会话</header>
+        <div class="body" x-show="!(usage.conversations || []).length"><div class="empty">暂无用量</div></div>
+        <table x-show="(usage.conversations || []).length">
+          <thead><tr><th>会话</th><th>Token</th><th>花费</th><th>请求</th></tr></thead>
+          <tbody>
+            <template x-for="c in (usage.conversations || []).slice(0, 20)" :key="c.key">
+              <tr><td class="mono" x-text="c.key"></td>
+                <td class="mono" x-text="fmtTokens(c.totalTokens)"></td>
+                <td class="mono" x-text="'¥' + num(c.cost || 0)"></td>
+                <td class="mono" x-text="c.requests"></td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══ 04 记忆池 ═══ -->
+    <section class="view" :class="{ on: view === 'memory' }">
+      <div class="block">
+        <header>长期记忆池 <span class="tag" x-text="(memoryRecords || []).length + ' 条'"></span></header>
+        <div class="body">
+          <div class="row">
+            <div class="f2"><label class="f">按会话过滤</label>
+              <input type="text" x-model="memoryFilter" placeholder="g123 / p456，留空看全部"></div>
+            <div class="fx"><button class="btn" @click="loadMemory()">刷新</button></div>
+            <div class="fx"><button class="btn" @click="clearMemory()">清空全部</button></div>
+          </div>
+          <div x-show="!(memoryRecords || []).length"><div class="empty">暂无记忆</div></div>
+          <template x-for="(m, i) in (memoryRecords || []).slice(-200).reverse()" :key="m.id || i">
+            <div class="logline">
+              <time x-text="new Date(m.ts).toLocaleTimeString()"></time>
+              <b x-text="'[' + m.namespace + '] ' + m.scope"></b>
+              <span x-text="m.memory"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 05 人设 ═══ -->
+    <section class="view" :class="{ on: view === 'persona' }">
+      <div class="block">
+        <header>人设提示词 <span class="tag" x-text="personaFile || 'roles/default.md'"></span></header>
+        <div class="body">
+          <textarea class="editor" x-model="personaText" spellcheck="false" placeholder="在此编辑人设…"></textarea>
+          <div class="row" style="margin-top:10px">
+            <div class="fx"><span class="char-count" :class="{ over: personaText.length > 8000 }" x-text="personaText.length + ' 字'"></span></div>
+            <div class="fx"><button class="btn" @click="loadPersona()">重载</button></div>
+            <div class="fx"><button class="btn primary" @click="savePersona()">保存并生效</button></div>
+          </div>
+          <div class="notice" x-show="msg.persona" x-text="msg.persona"></div>
+          <div class="notice blue">保存后立即热生效：已存在的会话会在下一条消息使用新人设（历史对话保留）。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 06 白名单 ═══ -->
+    <section class="view" :class="{ on: view === 'access' }">
+      <div class="block">
+        <header>访问控制 <span class="tag">写回 config.json</span></header>
+        <div class="body">
+          <div class="grid g-2">
+            <div>
+              <div class="row"><div class="f2"><label class="f">群白名单</label>
+                <input type="text" x-model="acl.allowGroups" placeholder="群号，逗号分隔"></div></div>
+              <div class="row"><div class="f2"><label class="f">私聊白名单</label>
+                <input type="text" x-model="acl.allowPrivate" placeholder="QQ 号，逗号分隔"></div></div>
+              <div class="row"><label class="f" style="display:flex;gap:8px;align-items:center;text-transform:none">
+                <input type="checkbox" x-model="acl.allowAllWhenEmpty"> 白名单留空时放行全部（危险）</label></div>
+            </div>
+            <div>
+              <div class="row"><div class="f2"><label class="f">群黑名单</label>
+                <input type="text" x-model="acl.denyGroups" placeholder="群号，逗号分隔"></div></div>
+              <div class="row"><div class="f2"><label class="f">私聊黑名单</label>
+                <input type="text" x-model="acl.denyPrivate" placeholder="QQ 号，逗号分隔"></div></div>
+            </div>
+          </div>
+          <div class="row"><div class="fx"><button class="btn primary" @click="saveAcl()">保存白名单</button></div></div>
+          <div class="notice" x-show="msg.acl" x-text="msg.acl"></div>
+          <div class="notice blue">黑名单优先于白名单；未放行的消息不会进入任何状态（不消耗 token）。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 07 二代仿真 ═══ -->
+    <section class="view" :class="{ on: view === 'socialv2' }">
+      <div class="block">
+        <header>二代仿真 · 会话状态 <span class="tag" x-text="v2.enabled ? (v2.states || []).length + ' 个' : '未启用'"></span></header>
+        <div class="body" x-show="!v2.enabled"><div class="empty">二代仿真未启用（config.socialV2.enabled = false）</div></div>
+        <div class="body" x-show="v2.enabled && !(v2.states || []).length"><div class="empty">暂无状态 · 命中唤醒触发后出现</div></div>
+        <table x-show="v2.enabled && (v2.states || []).length">
+          <thead><tr><th>会话</th><th>模式</th><th>未读</th><th>唤醒</th><th>空醒</th><th>记忆</th><th>最近消息</th><th style="width:120px"></th></tr></thead>
+          <tbody>
+            <template x-for="s in (v2.states || [])" :key="s.key">
+              <tr>
+                <td class="mono" x-text="s.key"></td>
+                <td>
+                  <span class="pill" :class="s.mode === 'active' ? 'g' : 'b'" x-text="s.mode === 'active' ? '活跃' : (s.infinite ? '潜水' : '定时')"></span>
+                  <span class="pill" style="background:#5a1010;color:#ff9a8a" x-show="!s.wakeable" title="所有触发器都关闭且无定时——用户无法唤回，检查触发器">@ 失联</span>
+                  <div class="mono" style="font-size:9px;opacity:.6" x-show="s.hasTimer" x-text="s.hasTimer ? '⏰ ' + new Date(s.sleepUntil).toLocaleTimeString() : ''"></div>
+                </td>
+                <td class="mono" x-text="s.unreadCount"></td>
+                <td class="mono" x-text="s.wakeCount"></td>
+                <td class="mono" x-text="s.noActionCount"></td>
+                <td class="mono" x-text="s.topics + '/' + s.thoughts + '/' + s.impressions"></td>
+                <td class="mono" x-text="s.lastIncomingAt ? new Date(s.lastIncomingAt).toLocaleTimeString() : '—'"></td>
+                <td>
+                  <button class="btn mini" @click="v2Wake(s.key)">唤醒</button>
+                  <button class="btn mini" @click="v2Detail(s.key)">详情</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid g-2">
+        <div class="block">
+          <header>会话详情</header>
+          <div class="body">
+            <div class="row">
+              <div class="f2"><label class="f">会话 key</label><input type="text" x-model="v2DetailKey" placeholder="g123 / p456"></div>
+              <div class="fx"><button class="btn mini" @click="v2Detail(v2DetailKey)">查看</button></div>
+              <div class="fx"><button class="btn mini" @click="v2Reset()">重置</button></div>
+            </div>
+            <div class="row">
+              <div class="f2"><label class="f">定时唤醒</label><input type="datetime-local" x-model="v2SleepAt"></div>
+              <div class="fx"><button class="btn mini" @click="v2SetSleep()">设定</button></div>
+              <div class="fx"><button class="btn mini" @click="v2ClearSleep()">取消</button></div>
+            </div>
+            <div x-show="v2DetailData" style="display:contents">
+              <div>
+                <dl class="kv" style="margin-bottom:10px">
+                  <dt>模式</dt><dd x-text="(v2DetailData?.wakeConfig?.mode ?? '—') + (v2DetailData?.wakeConfig?.infinite === false && v2DetailData?.wakeConfig?.sleepUntil ? ' · 定时醒 ' + new Date(v2DetailData.wakeConfig.sleepUntil).toLocaleString() : (v2DetailData?.wakeConfig?.infinite ? ' · 无定时任务' : ' · 无定时'))"></dd>
+                  <dt>最近控制操作</dt><dd x-text="v2DetailData?.lastConsoleAction ? v2DetailData.lastConsoleAction.text + ' · ' + new Date(v2DetailData.lastConsoleAction.at).toLocaleString() : '暂无记录'"></dd>
+                  <dt>已读水位</dt><dd x-text="'seq=' + (v2DetailData?.lastReadThroughSeq ?? 0) + ' · 未读 ' + (v2DetailData?.unread?.length || 0)"></dd>
+                  <dt>空醒</dt><dd x-text="v2DetailData?.noActionCount ?? 0"></dd>
+                </dl>
+                <label class="f">唤醒触发器（保存即生效）<span style="opacity:.6;text-transform:none;margin-left:8px" x-show="v2DetailData?.wakeConfig?.triggers?.atMention === false">⚠ @我 已关闭——潜水时会被强制开启</span></label>
+                <div class="row" style="margin-bottom:6px">
+                  <label class="f" style="display:flex;gap:5px;align-items:center;text-transform:none"><input type="checkbox" x-model="v2Triggers.atMention" @change="v2Triggers.atMention = true" title="潜水保险丝：不可关闭（防止失联）"> @我（保底）</label>
+                  <label class="f" style="display:flex;gap:5px;align-items:center;text-transform:none"><input type="checkbox" x-model="v2Triggers.nameMention"> 名字</label>
+                  <label class="f" style="display:flex;gap:5px;align-items:center;text-transform:none"><input type="checkbox" x-model="v2Triggers.question"> 提问</label>
+                  <label class="f" style="display:flex;gap:5px;align-items:center;text-transform:none"><input type="checkbox" x-model="v2Triggers.poke"> 戳一戳</label>
+                  <label class="f" style="display:flex;gap:5px;align-items:center;text-transform:none"><input type="checkbox" x-model="v2Triggers.anyMessage"> 任意消息</label>
+                </div>
+                <div class="row">
+                  <div class="f2"><label class="f">指定 QQ 号触发（逗号分隔）</label><input x-model="v2Triggers.speakerIdsStr"></div><div class="f2"><label class="f">关键词（逗号分隔）</label><input type="text" x-model="v2Triggers.keywordsStr"></div>
+                  <div class="f1"><label class="f">概率</label><input type="number" step="0.01" min="0" max="1" x-model.number="v2Triggers.probability"></div>
+                  <div class="fx"><button class="btn mini" @click="saveV2Triggers()">保存触发器</button></div>
+                </div>
+                <div class="notice" x-show="msg.v2trig" x-text="msg.v2trig"></div>
+                <label class="f" style="margin-top:10px">会话初始提示词（圈子背景/氛围/忌讳，下次首次唤醒注入一次）</label>
+                <textarea rows="3" x-model="v2InitialPrompt" style="width:100%;font-size:11px" placeholder="例：这是一个游戏开黑群，话题围绕明日方舟；管理员叫老王；忌讳讨论政治"></textarea>
+                <div class="fx" style="margin-top:4px"><button class="btn mini" @click="saveV2InitialPrompt()">保存初始提示词</button></div>
+                <div class="notice" x-show="msg.v2init" x-text="msg.v2init"></div>
+                <label class="f">记忆</label>
+                <pre class="mem" x-text="v2DetailData?.memory ?? '（未选择会话）'"></pre>
+                <label class="f" style="margin-top:10px">最近消息</label>
+                <template x-for="(m, i) in (v2DetailData?.recentMessages || []).slice(-8).reverse()" :key="i">
+                  <div class="logline"><time x-text="'seq' + m.seq"></time><b x-text="m.sender"></b>
+                    <span x-text="String(m.text || '').slice(0, 90)"></span></div>
+                </template>
+              </div>
+            </div>
+            <div class="notice" x-show="v2DetailLoading">正在加载会话详情…</div><div x-show="!v2DetailData && !v2DetailLoading"><div class="empty">输入 key 后查看</div></div>
+          </div>
+        </div>
+
+        <div class="block">
+          <header>调度参数 <span class="tag">写回 config</span></header>
+          <div class="body">
+            <div class="row">
+              <div class="f1"><label class="f">巡逻最短 ms</label><input type="number" x-model.number="v2Schedule.proactiveMinMs"></div>
+              <div class="f1"><label class="f">巡逻最长 ms</label><input type="number" x-model.number="v2Schedule.proactiveMaxMs"></div>
+              <div class="f1"><label class="f">睡眠最短 ms</label><input type="number" x-model.number="v2Schedule.sleepMinMs"></div>
+              <div class="f1"><label class="f">睡眠最长 ms</label><input type="number" x-model.number="v2Schedule.sleepMaxMs"></div>
+            </div>
+            <div class="row">
+              <div class="f1"><label class="f">合并窗口 ms</label><input type="number" x-model.number="v2Schedule.batchWindowMs"></div>
+              <div class="f1"><label class="f">连发条数上限</label><input type="number" x-model.number="v2Schedule.burstMaxMessages"></div>
+              <div class="f1"><label class="f">发送/分</label><input type="number" x-model.number="v2Schedule.maxSendPerMinute"></div>
+              <div class="f1"><label class="f">发送/时</label><input type="number" x-model.number="v2Schedule.maxSendPerHour"></div>
+            </div>
+<hr class="split"><label class="f">唤醒限频</label><div class="notice">按会话独立计数，四档互不挤占；每分是滚动60秒。显式与跟随额度至少与常规档相同。唤醒次数不等于发送条数。</div><div class="wake-grid"><div class="wake-card"><b>显式请求</b><p>@机器人、私聊、戳一戳使用独立额度。</p><div class="row"><div><label class="f">每分钟</label><input type="number" x-model.number="v2Schedule.maxDirectWakePerMinute"></div><div><label class="f">每小时</label><input type="number" x-model.number="v2Schedule.maxDirectWakePerHour"></div></div></div><div class="wake-card"><b>跟随接话</b><p>机器人刚问过问题后，跟随窗口内的新消息；先命中其他触发器时按其他档计算。</p><div class="row"><div><label class="f">每分钟</label><input type="number" x-model.number="v2Schedule.maxFollowUpWakePerMinute"></div><div><label class="f">每小时</label><input type="number" x-model.number="v2Schedule.maxFollowUpWakePerHour"></div></div></div><div class="wake-card"><b>常规触发</b><p>名字、提问、关键词、指定发言人、任意消息或概率触发。</p><div class="row"><div><label class="f">每分钟</label><input type="number" x-model.number="v2Schedule.maxWakePerMinute"></div><div><label class="f">每小时</label><input type="number" x-model.number="v2Schedule.maxWakePerHour"></div></div></div><div class="wake-card"><b>主动调度</b><p>巡逻、回复检查、定时到点、手动唤醒和积压续读。</p><div class="row"><div><label class="f">每分钟</label><input type="number" x-model.number="v2Schedule.maxProactiveWakePerMinute"></div><div><label class="f">每小时</label><input type="number" x-model.number="v2Schedule.maxProactiveWakePerHour"></div></div></div></div>
+            <div class="row"><div class="fx"><button class="btn primary" @click="saveV2Schedule()">保存调度</button></div></div>
+            <hr class="split" style="margin:12px 0">
+            <label class="f">记忆写入</label>
+            <div class="row">
+              <div class="f1"><select x-model="v2MemCategory">
+                <option value="topic">话题</option><option value="thought">想法</option><option value="impression">印象</option>
+              </select></div>
+              <div class="f2"><input type="text" x-model="v2MemText" placeholder="内容 / 印象用「名字:标签」"></div>
+              <div class="fx"><button class="btn mini" @click="v2AddMemory()">写入</button></div>
+            </div>
+            <div class="notice" x-show="msg.v2mem" x-text="msg.v2mem"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <header>活动日志</header>
+        <div class="body">
+          <div x-show="!(v2.activity || []).length"><div class="empty">暂无活动</div></div>
+          <template x-for="(a, i) in (v2.activity || [])" :key="i">
+            <div class="logline"><time x-text="new Date(a.t).toLocaleTimeString()"></time><b x-text="a.key"></b><span x-text="a.line"></span></div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 08 一代仿真 ═══ -->
+    <section class="view" :class="{ on: view === 'socialv1' }">
+      <div class="block">
+        <header>一代仿真 · 状态机 <span class="tag" x-text="v1.enabled ? (v1.states || []).length + ' 个' : '未启用'"></span></header>
+        <div class="body" x-show="!v1.enabled"><div class="empty">一代仿真未启用（config.socialV1.enabled = false）</div></div>
+        <div class="body" x-show="v1.enabled && !(v1.states || []).length"><div class="empty">暂无状态 · 群消息进来后出现</div></div>
+        <table x-show="v1.enabled && (v1.states || []).length">
+          <thead><tr><th>会话</th><th>相位</th><th>待投摘要</th><th>最近活跃</th><th>AI 发言</th><th style="width:150px"></th></tr></thead>
+          <tbody>
+            <template x-for="s in (v1.states || [])" :key="s.key">
+              <tr>
+                <td class="mono" x-text="s.key"></td>
+                <td><span class="pill" :class="phaseClass(s.phase)" x-text="phaseLabel(s.phase)"></span></td>
+                <td class="mono" x-text="(v1.pendingSummaries || {})[s.key] || 0"></td>
+                <td class="mono" x-text="s.lastActiveMessageAt ? new Date(s.lastActiveMessageAt).toLocaleTimeString() : '—'"></td>
+                <td class="mono" x-text="s.lastAiReplyAt ? new Date(s.lastAiReplyAt).toLocaleTimeString() : '—'"></td>
+                <td>
+                  <button class="btn mini" @click="v1Phase(s.key, s.phase === 'active' ? 'idle' : 'active')"
+                    x-text="s.phase === 'active' ? '设观望' : '设活跃'"></button>
+                  <button class="btn mini" @click="retire(s.key)">退役</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid g-2">
+        <div class="block">
+          <header>参数 <span class="tag">写回 config</span></header>
+          <div class="body">
+            <div class="row">
+              <div class="f1"><label class="f">观望触发概率</label><input type="number" step="0.01" x-model.number="v1Cfg.triggerProbability"></div>
+              <div class="f1"><label class="f">活跃沉默概率</label><input type="number" step="0.01" x-model.number="v1Cfg.skipProbability"></div>
+            </div>
+            <div class="row">
+              <div class="f1"><label class="f">上下文条数</label><input type="number" x-model.number="v1Cfg.contextWindow"></div><div class="f1"><label class="f">冷场再试概率</label><input type="number" step="0.01" x-model.number="v1Cfg.idleRetryProbability"></div><div class="f1"><label class="f">冷场阈值 ms</label><input type="number" x-model.number="v1Cfg.idleWindowMs"></div>
+              <div class="f1"><label class="f">单条上限 字</label><input type="number" x-model.number="v1Cfg.maxReplyChars"></div>
+            </div>
+            <div class="row"><div class="f2"><label class="f">必回关键词（逗号分隔）</label>
+              <input type="text" x-model="v1Cfg.keywords"></div></div>
+            <div class="row"><div class="fx"><button class="btn primary" @click="saveV1Config()">保存参数</button></div></div>
+            <div class="notice" x-show="msg.v1" x-text="msg.v1"></div>
+          </div>
+        </div>
+
+        <div class="block">
+          <header>手动操作</header>
+          <div class="body">
+            <div class="row"><div class="f2"><label class="f">会话 key</label>
+              <input type="text" x-model="v1OpKey" placeholder="g123"></div></div>
+            <div class="row">
+              <div class="fx"><button class="btn mini" @click="v1Phase(v1OpKey, 'active')">设为活跃</button></div>
+              <div class="fx"><button class="btn mini" @click="v1Phase(v1OpKey, 'idle')">设为观望</button></div>
+              <div class="fx"><button class="btn mini" @click="v1Flush()">投喂摘要</button></div>
+            </div>
+            <div class="notice" x-show="msg.v1op" x-text="msg.v1op"></div>
+            <div class="notice blue">一代：观望期按概率触发 → 活跃期选择性沉默 → 冷场试探 → 15~30 分钟后自然退场。AI 可用 [SILENT] 潜水、空格分条。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <header>活动日志</header>
+        <div class="body">
+          <div x-show="!(v1.activity || []).length"><div class="empty">暂无活动</div></div>
+          <template x-for="(a, i) in (v1.activity || [])" :key="i">
+            <div class="logline"><time x-text="new Date(a.t).toLocaleTimeString()"></time><b x-text="a.key"></b><span x-text="a.line"></span></div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="tt" x-data="{ on: false, bad: false, text: '' }"
+     :class="{ on: on, bad: bad }" x-text="text"></div>
+
+<script src="/alpine.js" defer></script>
+<script>
+// ── 会话/主题/提示 ──
+function toast(text, bad) {
+  const el = document.getElementById('tt');
+  if (!el || !el._x_dataStack) return;
+  const d = el._x_dataStack[0];
+  d.text = text; d.bad = !!bad; d.on = true;
+  clearTimeout(el._t); el._t = setTimeout(() => { d.on = false; }, 2600);
+}
+
+function app() {
+  return {
+    // ── 基础状态 ──
+    theme: 'dark',
+    view: 'overview',
+    views: [
+      { id: 'overview', no: '01', label: '运行总览' },
+      { id: 'sessions', no: '02', label: '会话管理' },
+      { id: 'usage', no: '03', label: '令牌与花费' },
+      { id: 'memory', no: '04', label: '记忆池' },
+      { id: 'persona', no: '05', label: '人设' },
+      { id: 'access', no: '06', label: '白名单' },
+      { id: 'socialv2', no: '07', label: '二代仿真' },
+      { id: 'socialv1', no: '08', label: '一代仿真' },
+    ],
+    features: { v1: { enabled: false, mode: 'off' }, v2: { enabled: false, mode: 'off' } }, status: {}, model: {}, runtime: {}, usage: {}, series: {},
+    memoryRecords: [], memoryFilter: '',
+    personaText: '', personaFile: '',
+    acl: { allowGroups: '', allowPrivate: '', denyGroups: '', denyPrivate: '', allowAllWhenEmpty: false },
+    modelForm: { preset: '', model: '', baseUrl: '', apiKey: '', thinkingLevel: 'off', maxTokens: 2048, provider: 'deepseek' },
+    runtimeForm: { ackMessage: '', sendDelayMs: 800, maxTurnSeconds: 300, historyMaxMessages: 120, historySummarize: true },
+    v1: { enabled: false, states: [], pendingSummaries: {}, activity: [] },
+    v1Cfg: { triggerProbability: 0.1, skipProbability: 0.15, idleWindowMs: 360000, maxReplyChars: 500, keywords: '' },
+    v1OpKey: '',
+    v2: { enabled: false, states: [], activity: [] },
+    v2DetailKey: localStorage.getItem('qq-v2-key') || '', v2DetailData: null, v2DetailLoading: false, _detailRequest: 0, v2SleepAt: '', v2InitialPrompt: '',
+    v2Triggers: { atMention: true, nameMention: true, question: true, poke: true, anyMessage: false, keywordsStr: '', probability: 0.05 },
+    v2Schedule: { proactiveMinMs: 1800000, proactiveMaxMs: 5400000, sleepMinMs: 60000, sleepMaxMs: 7200000, maxWakePerMinute: 1, maxWakePerHour: 12, maxDirectWakePerMinute: 6, maxDirectWakePerHour: 120, maxFollowUpWakePerMinute: 3, maxFollowUpWakePerHour: 60, maxProactiveWakePerMinute: 1, maxProactiveWakePerHour: 20, maxSendPerMinute: 8, maxSendPerHour: 60 },
+    v2MemCategory: 'topic', v2MemText: '',
+    msg: {},
+    _timer: null,
+
+    get currentView() { return this.views.find((v) => v.id === this.view) || this.views[0]; },
+
+    init() {
+      document.body.classList.add('ready');
+      try { this.theme = localStorage.getItem('qq-console-theme') === 'light' ? 'light' : 'dark'; } catch (e) { this.theme = 'dark'; }
+      this.refreshShell().then(() => this.loadView('overview'));
+      this._timer = setInterval(async () => {
+        if (this._refreshing) return;
+        this._refreshing = true;
+        try {
+          await this.refreshShell();
+          // 刷新展示数据，保留正在编辑的参数。
+          if (this.view === 'socialv1' || this.view === 'socialv2') {
+            const prefix = this.view === 'socialv1' ? 'v1' : 'v2';
+            const [s, a] = await Promise.all(prefix === 'v1'
+              ? [this.api('/api/socialv1/states'), this.api('/api/socialv1/activity')]
+              : [this.api('/api/socialv2/states'), this.api('/api/socialv2/activity')]);
+            this[prefix].states = s.states || [];
+            this[prefix].enabled = s.enabled === true;
+            this[prefix].activity = a.activity || [];
+            if (prefix === 'v1') this.v1.pendingSummaries = s.pendingSummaries || {};
+          }
+        } catch (e) {} finally { this._refreshing = false; }
+      }, 15000);
+    },
+
+    // ── 导航 ──
+    go(id) {
+      this.view = id;
+      this.loadView(id);
+    },
+    toggleTheme() {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = this.theme;
+      try { localStorage.setItem('qq-console-theme', this.theme); } catch (e) {}
+    },
+
+    // ── API（控制面免鉴权）──
+    async api(path, method, body) {
+      const headers = body ? { 'content-type': 'application/json' } : {};
+      const res = await fetch(path, { method: method || 'GET', headers, body: body ? JSON.stringify(body) : undefined });
+      if (!res.ok) {
+        const eb = await res.json().catch(() => ({}));
+        throw new Error(eb.error || ('HTTP ' + res.status));
+      }
+      return res.json();
+    },
+
+    // ── 数据加载 ──
+    async refreshShell() {
+      const [s, u] = await Promise.all([this.api('/status'), this.api('/api/tokens/summary')]);
+      this.status = s; this.usage = u;
+    },
+    loadView(id) {
+      const map = {
+        overview: () => this.loadOverview(),
+        sessions: () => this.refreshShell(),
+        usage: () => this.loadUsage(),
+        memory: () => this.loadMemory(),
+        persona: () => this.loadPersona(),
+        access: () => this.loadAcl(),
+        socialv2: () => this.loadV2(),
+        socialv1: () => this.loadV1(),
+      };
+      (map[id] || (() => {}))();
+    },
+    async saveFeatures() {
+      try { await this.api('/api/simulation', 'POST', this.features); await this.loadOverview(); await this.refreshShell(); this.msg.features = '已保存，运行状态已更新'; } catch (e) { this.msg.features = '失败：' + e.message; }
+    },
+    async loadOverview() {
+      this.features = await this.api('/api/simulation');
+      const [m, r] = await Promise.all([this.api('/api/model'), this.api('/api/runtime')]);
+      this.model = m.model || {};
+      this.model.builtins = m.builtins || [];
+      this.runtime = r.runtime || {};
+      this.modelForm.model = this.model.model || '';
+      this.modelForm.provider = this.model.provider; this.modelForm.maxTokens = this.model.maxTokens;
+      this.modelForm.baseUrl = this.model.baseUrl || '';
+      this.modelForm.thinkingLevel = this.model.thinkingLevel || 'off';
+      this.runtimeForm.ackMessage = this.runtime.ackMessage || '';
+      this.runtimeForm.sendDelayMs = this.runtime.sendDelayMs;
+      this.runtimeForm.maxTurnSeconds = this.runtime.maxTurnSeconds;
+      this.runtimeForm.historyMaxMessages = this.runtime.historyMaxMessages;
+      this.runtimeForm.historySummarize = this.runtime.historySummarize;
+    },
+    async loadUsage() {
+      const [u, s] = await Promise.all([this.api('/api/tokens/summary'), this.api('/api/tokens/series?hours=24&buckets=48')]);
+      this.usage = u; this.series = s;
+    },
+    async loadMemory() {
+      const q = this.memoryFilter.trim() ? ('?session=' + encodeURIComponent(this.memoryFilter.trim())) : '';
+      const r = await this.api('/memory' + q);
+      this.memoryRecords = r.records || [];
+    },
+    async loadPersona() {
+      const r = await this.api('/api/persona');
+      this.personaFile = r.file || ''; this.personaText = r.content || '';
+    },
+
+    // ── 会话 ──
+    sessionUsage(key) {
+      return (this.usage.conversations || []).find((c) => c.key === key) || {};
+    },
+    totalTokens() { return (this.status.ledger?.input || 0) + (this.status.ledger?.output || 0); },
+    async abortSession(key) {
+      try {
+        const r = await this.api('/sessions/abort', 'POST', { sessionKey: key });
+        toast(r.aborted ? ('已中断 ' + key) : (r.note || '会话空闲'), !r.aborted);
+        await this.refreshShell();
+      } catch (e) { toast(e.message, true); }
+    },
+    async retire(key) {
+      if (!confirm('确定退役会话 ' + key + '？\n（清空 transcript 与记忆，下次消息重建）')) return;
+      try {
+        const r = await this.api('/sessions/retire', 'POST', { sessionKey: key });
+        toast(r.retired ? '已退役 ' + key : (r.error || '失败'), !r.retired);
+        await this.refreshShell();
+        if (this.view === 'socialv1') this.loadV1();
+        if (this.view === 'socialv2') this.loadV2();
+      } catch (e) { toast(e.message, true); }
+    },
+
+    // ── 模型 / 运行参数 ──
+    pickPreset() { if (this.modelForm.preset) this.modelForm.model = this.modelForm.preset; },
+    async saveModel() {
+      const body = { model: this.modelForm.model.trim(), baseUrl: this.modelForm.baseUrl.trim(), thinkingLevel: this.modelForm.thinkingLevel, maxTokens: Number(this.modelForm.maxTokens) };
+      if (this.modelForm.apiKey.trim()) body.apiKey = this.modelForm.apiKey.trim();
+      const base = body.baseUrl || '';
+      body.provider = base.includes('deepseek') ? 'deepseek' : (base.match(/\/\/([a-z0-9-]+)\./) ? base.match(/\/\/([a-z0-9-]+)\./)[1].replace(/[^a-z0-9-]/g, '') : 'custom');
+      body.provider = this.modelForm.provider?.trim() || body.provider;
+      try {
+        const r = await this.api('/api/model', 'POST', body);
+        this.msg.model = (r.pendingSessions ? ('已保存，' + r.pendingSessions + ' 个会话待生效：') : '已生效：') + r.model.provider + '/' + r.model.model;
+        this.modelForm.apiKey = '';
+        toast(r.pendingSessions ? '模型已保存，等待当前回合结束生效' : '模型已切换');
+        await this.refreshShell(); this.loadOverview();
+      } catch (e) { this.msg.model = '失败：' + e.message; toast(e.message, true); }
+    },
+    async saveRuntime() {
+      try {
+        await this.api('/api/runtime', 'POST', {
+          ackMessage: this.runtimeForm.ackMessage,
+          sendDelayMs: Number(this.runtimeForm.sendDelayMs),
+          maxTurnSeconds: Number(this.runtimeForm.maxTurnSeconds),
+          historyMaxMessages: Number(this.runtimeForm.historyMaxMessages),
+          historySummarize: this.runtimeForm.historySummarize === true || this.runtimeForm.historySummarize === 'true',
+        });
+        this.msg.runtime = '已保存；已开始的回合不追溯，下个回合使用新值';
+        toast('运行参数已保存');
+        this.loadOverview();
+      } catch (e) { this.msg.runtime = '失败：' + e.message; toast(e.message, true); }
+    },
+
+    // ── 人设 ──
+    async savePersona() {
+      try {
+        const r = await this.api('/api/persona', 'POST', { content: this.personaText });
+        this.msg.persona = r.ok ? (r.pendingSessions ? ('已保存，' + r.pendingSessions + ' 个会话待回合结束生效') : (r.note || '已保存并即时生效')) : ('失败：' + (r.error || ''));
+        toast(r.ok ? (r.pendingSessions ? '人设已保存，等待当前回合结束生效' : '人设已生效') : '保存失败', !r.ok);
+      } catch (e) { this.msg.persona = '失败：' + e.message; toast(e.message, true); }
+    },
+
+    // ── 白名单 ──
+    async loadAcl() {
+      const w = await this.api('/api/whitelist');
+      this.acl.allowGroups = (w.allow?.groups || []).join(', ');
+      this.acl.allowPrivate = (w.allow?.private || []).join(', ');
+      this.acl.denyGroups = (w.deny?.groups || []).join(', ');
+      this.acl.denyPrivate = (w.deny?.private || []).join(', ');
+      this.acl.allowAllWhenEmpty = w.allow?.allowAllWhenEmpty === true;
+    },
+    ids(str) { return String(str || '').split(/[,，\s]+/).map((x) => x.trim()).filter(Boolean); },
+    async saveAcl() {
+      try {
+        const r = await this.api('/api/whitelist', 'POST', {
+          allow: { groups: this.ids(this.acl.allowGroups), private: this.ids(this.acl.allowPrivate), allowAllWhenEmpty: this.acl.allowAllWhenEmpty },
+          deny: { groups: this.ids(this.acl.denyGroups), private: this.ids(this.acl.denyPrivate) },
+        });
+        this.msg.acl = r.ok ? '白名单已保存（即时生效）' : ('失败：' + (r.error || ''));
+        toast(r.ok ? '白名单已保存' : '保存失败', !r.ok);
+      } catch (e) { this.msg.acl = '失败：' + e.message; toast(e.message, true); }
+    },
+
+    // ── 记忆池 ──
+    async clearMemory() {
+      if (!confirm('清空全部记忆？（不可恢复）')) return;
+      try { await this.api('/memory', 'DELETE'); toast('已清空'); this.loadMemory(); }
+      catch (e) { toast(e.message, true); }
+    },
+
+    // ── 二代 ──
+    async loadV2() {
+      try {
+        const s = await this.api('/api/socialv2/states');
+        this.v2.enabled = s.enabled === true; this.v2.states = s.states || [];
+        if (this.v2DetailKey) await this.v2Detail(this.v2DetailKey);
+        if (this.v2.enabled) {
+          const [a, sc] = await Promise.all([this.api('/api/socialv2/activity'), this.api('/api/socialv2/schedule')]);
+          this.v2.activity = a.activity || [];
+          if (sc.ok) this.v2Schedule = { ...this.v2Schedule, ...sc.schedule };
+        }
+      } catch (e) { toast(e.message, true); }
+    },
+    async v2Detail(key) {
+      if (!key) return;
+      const requestId = ++this._detailRequest;
+      this.v2DetailLoading = true;
+      this.v2DetailKey = key; localStorage.setItem('qq-v2-key', key);
+      try {
+        const r = await this.api('/api/socialv2/state?key=' + encodeURIComponent(key));
+        if (requestId !== this._detailRequest) return;
+        this.v2DetailData = r;
+        const deadline = r.wakeConfig?.infinite === false ? r.wakeConfig.sleepUntil : 0;
+        this.v2SleepAt = deadline ? new Date(deadline - new Date(deadline).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+        const t = r.wakeConfig?.triggers ?? {};
+        this.v2Triggers = {
+          atMention: t.atMention === true, nameMention: t.nameMention === true,
+          question: t.question === true, poke: t.poke === true, anyMessage: t.anyMessage === true,
+          speakerIdsStr: (t.speakerIds || []).join(', '), keywordsStr: (t.keywords || []).join(', '), probability: Number(t.probability ?? 0.05),
+        };
+        this.v2InitialPrompt = r.initialPrompt ?? '';
+        this.msg.v2trig = '';
+      } catch (e) { if (requestId === this._detailRequest) { this.v2DetailData = null; toast(e.message, true); } }
+      finally { if (requestId === this._detailRequest) this.v2DetailLoading = false; }
+    },
+    async saveV2InitialPrompt() {
+      const key = this.v2DetailKey.trim();
+      if (!key) { toast('需要会话 key', true); return; }
+      try {
+        await this.api('/api/socialv2/initial-prompt', 'POST', { sessionKey: key, initialPrompt: this.v2InitialPrompt });
+        this.msg.v2init = '初始提示词已保存（下次首次唤醒注入）';
+        toast('初始提示词已保存');
+      } catch (e) { this.msg.v2init = '失败：' + e.message; }
+    },
+    async v2Wake(key) {
+      if (!key) return;
+      try { const r = await this.api('/api/socialv2/wake', 'POST', { sessionKey: key });
+        toast(r.ok ? '已调度唤醒' : ('失败：' + (r.error || '')), !r.ok); this.loadV2();
+      } catch (e) { toast(e.message, true); }
+    },
+    async v2Reset() {
+      const key = this.v2DetailKey.trim();
+      if (!key || !confirm('重置 ' + key + ' 的二代状态？（wake 配置与记忆清空）')) return;
+      try { await this.api('/api/socialv2/reset', 'POST', { sessionKey: key }); toast('已重置'); this.v2DetailData = null; this.loadV2(); }
+      catch (e) { toast(e.message, true); }
+    },
+    async saveV2Triggers() {
+      const key = this.v2DetailKey.trim();
+      if (!key) { this.msg.v2trig = '需要会话 key'; return; }
+      try {
+        const r = await this.api('/api/socialv2/config', 'POST', {
+          sessionKey: key,
+          wakeConfig: { triggers: {
+            atMention: this.v2Triggers.atMention, nameMention: this.v2Triggers.nameMention,
+            question: this.v2Triggers.question, poke: this.v2Triggers.poke,
+            anyMessage: this.v2Triggers.anyMessage,
+            speakerIds: this.ids(this.v2Triggers.speakerIdsStr || ''), keywords: this.ids(this.v2Triggers.keywordsStr),
+            probability: Number(this.v2Triggers.probability) || 0,
+          } },
+        });
+        await this.v2Detail(key);
+        this.msg.v2trig = r.ok ? '触发器已保存（即时生效）' : ('失败：' + (r.error || ''));
+        toast(r.ok ? '触发器已保存' : '保存失败', !r.ok);
+      } catch (e) { this.msg.v2trig = '失败：' + e.message; }
+    },
+    async v2SetSleep() {
+      const key = this.v2DetailKey.trim();
+      if (!key || !this.v2SleepAt) { toast('需要 key 与时间', true); return; }
+      const ts = new Date(this.v2SleepAt).getTime();
+      if (!Number.isFinite(ts) || ts <= Date.now()) { toast('时间格式错误', true); return; }
+      try {
+        await this.api('/api/socialv2/config', 'POST', { sessionKey: key, wakeConfig: { mode: 'diving', infinite: false, sleepUntil: ts } });
+        toast('定时唤醒已设定：' + new Date(ts).toLocaleString()); this.v2Detail(key);
+      } catch (e) { toast(e.message, true); }
+    },
+    async v2ClearSleep() {
+      const key = this.v2DetailKey.trim();
+      if (!key) { toast('需要 key', true); return; }
+      try {
+        await this.api('/api/socialv2/config', 'POST', { sessionKey: key, wakeConfig: { mode: 'active', infinite: true, sleepUntil: 0 } });
+        this.v2SleepAt = ''; await this.v2Detail(key); await this.loadV2(); toast('已取消定时，恢复活跃（触发器仍生效）');
+      } catch (e) { toast(e.message, true); }
+    },
+    async saveV2Schedule() {
+      try {
+        const r = await this.api('/api/socialv2/schedule', 'POST', {
+          batchWindowMs: Number(this.v2Schedule.batchWindowMs), burstMaxMessages: Number(this.v2Schedule.burstMaxMessages),
+          proactiveMinMs: Number(this.v2Schedule.proactiveMinMs),
+          proactiveMaxMs: Number(this.v2Schedule.proactiveMaxMs),
+          sleepMinMs: Number(this.v2Schedule.sleepMinMs),
+          sleepMaxMs: Number(this.v2Schedule.sleepMaxMs),
+          maxWakePerMinute: Number(this.v2Schedule.maxWakePerMinute),
+          maxWakePerHour: Number(this.v2Schedule.maxWakePerHour),
+          maxDirectWakePerMinute: Number(this.v2Schedule.maxDirectWakePerMinute),
+          maxDirectWakePerHour: Number(this.v2Schedule.maxDirectWakePerHour),
+          maxFollowUpWakePerMinute: Number(this.v2Schedule.maxFollowUpWakePerMinute),
+          maxFollowUpWakePerHour: Number(this.v2Schedule.maxFollowUpWakePerHour),
+          maxProactiveWakePerMinute: Number(this.v2Schedule.maxProactiveWakePerMinute),
+          maxProactiveWakePerHour: Number(this.v2Schedule.maxProactiveWakePerHour),
+          maxSendPerMinute: Number(this.v2Schedule.maxSendPerMinute),
+          maxSendPerHour: Number(this.v2Schedule.maxSendPerHour),
+        });
+        toast(r.ok ? '调度参数已保存' : '失败', !r.ok); this.loadV2();
+      } catch (e) { toast(e.message, true); }
+    },
+    async v2AddMemory() {
+      const key = this.v2DetailKey.trim();
+      if (!key || !this.v2MemText.trim()) { this.msg.v2mem = '需要会话 key 与内容'; return; }
+      const body = { sessionKey: key, action: 'append', category: this.v2MemCategory, text: this.v2MemText.trim() };
+      try {
+        const r = await this.api('/api/socialv2/memory', 'POST', body);
+        this.msg.v2mem = r.ok ? '已写入' : ('失败：' + (r.error || ''));
+        if (r.ok) { this.v2MemText = ''; this.v2Detail(key); }
+      } catch (e) { this.msg.v2mem = '失败：' + e.message; }
+    },
+
+    // ── 一代 ──
+    async loadV1() {
+      try {
+        const s = await this.api('/api/socialv1/states');
+        this.v1.enabled = s.enabled === true;
+        this.v1.states = s.states || [];
+        this.v1.pendingSummaries = s.pendingSummaries || {};
+        const c = s.config || {};
+        this.v1Cfg.triggerProbability = c.triggerProbability;
+        this.v1Cfg.skipProbability = c.skipProbability;
+        this.v1Cfg.contextWindow = c.contextWindow; this.v1Cfg.idleRetryProbability = c.idleRetryProbability;
+        this.v1Cfg.idleWindowMs = c.idleWindowMs;
+        this.v1Cfg.maxReplyChars = c.maxReplyChars;
+        this.v1Cfg.keywords = (c.mustReplyKeywords || []).join(', ');
+        if (this.v1.enabled) {
+          const a = await this.api('/api/socialv1/activity');
+          this.v1.activity = a.activity || [];
+        }
+      } catch (e) { toast(e.message, true); }
+    },
+    phaseLabel(p) { return ({ idle: '观望', active: '活跃', probing: '试探', exiting: '退场' })[p] || p; },
+    phaseClass(p) { return ({ idle: 'n', active: 'g', probing: 'b', exiting: 'r' })[p] || 'n'; },
+    async v1Phase(key, phase) {
+      if (!key) { this.msg.v1op = '需要会话 key'; return; }
+      try {
+        const r = await this.api('/api/socialv1/state', 'POST', { sessionKey: key, phase });
+        this.msg.v1op = r.ok ? ('已设为 ' + phase) : ('失败：' + (r.error || ''));
+        this.loadV1();
+      } catch (e) { this.msg.v1op = '失败：' + e.message; }
+    },
+    async v1Flush() {
+      const key = this.v1OpKey.trim();
+      if (!key) { this.msg.v1op = '需要会话 key'; return; }
+      try {
+        const r = await this.api('/api/socialv1/flush', 'POST', { sessionKey: key });
+        this.msg.v1op = r.ok ? ('已投喂 ' + r.fed + ' 条摘要') : ('失败：' + (r.error || ''));
+      } catch (e) { this.msg.v1op = '失败：' + e.message; }
+    },
+    async saveV1Config() {
+      try {
+        const r = await this.api('/api/socialv1/config', 'POST', {
+          contextWindow: Number(this.v1Cfg.contextWindow), idleRetryProbability: Number(this.v1Cfg.idleRetryProbability),
+          triggerProbability: Number(this.v1Cfg.triggerProbability),
+          skipProbability: Number(this.v1Cfg.skipProbability),
+          idleWindowMs: Number(this.v1Cfg.idleWindowMs),
+          maxReplyChars: Number(this.v1Cfg.maxReplyChars),
+          mustReplyKeywords: this.ids(this.v1Cfg.keywords),
+        });
+        this.msg.v1 = r.ok ? '参数已保存（即时生效）' : ('失败：' + (r.error || ''));
+        toast(r.ok ? '参数已保存' : '保存失败', !r.ok);
+      } catch (e) { this.msg.v1 = '失败：' + e.message; }
+    },
+
+    // ── 展示辅助 ──
+    fmtTokens(n) {
+      n = Number(n) || 0;
+      if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+      return String(n);
+    },
+    num(v) { const n = Number(v) || 0; return n >= 100 ? n.toFixed(0) : n.toFixed(2); },
+    tierLabel() {
+      if (this.usage.nowTier === 'peak') return '高峰 ×2';
+      if (this.usage.nowTier === 'off') return '空闲时段';
+      return '—';
+    },
+    connState() { return this.status.connection?.state || (this.status.running ? 'connected' : 'idle'); },
+    connLabel() {
+      const st = this.connState();
+      if (st === 'connected' && this.status.connected) return '已连接';
+      if (st === 'protocol-down') return '协议端未就绪';
+      if (st === 'reconnecting') return '重连中';
+      return this.status.running ? '运行中' : '未运行';
+    },
+    connClass() {
+      const st = this.connState();
+      if (st === 'connected' && this.status.connected) return 'ok';
+      if (st === 'protocol-down') return 'err';
+      if (st === 'reconnecting') return 'warn';
+      return '';
+    },
+    simText() {
+      const sim = this.status.simulation || {};
+      const parts = [];
+      if (sim.v2?.enabled) parts.push('二代' + (sim.v2.mode === 'v2' ? '（接管）' : '（记录）'));
+      if (sim.v1?.enabled) parts.push('一代' + (sim.v1.mode === 'v1' ? '（接管）' : '（记录）'));
+      return parts.join(' · ') || '未启用';
+    },
+    // 构成主义柱状图：硬边红块 + 高亮峰值
+    chartSvg() {
+      const buckets = this.series.buckets || [];
+      if (!buckets.length) return '';
+      const W = 900, H = 190, padL = 34, padR = 8, padT = 10, padB = 26;
+      const max = Math.max(...buckets.map((b) => b.tokens), 1);
+      const innerW = W - padL - padR;
+      const bw = innerW / buckets.length;
+      let out = '';
+      // 横向网格
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + (H - padT - padB) * (i / 4);
+        out += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="currentColor" stroke-opacity="0.12" stroke-width="1"/>`;
+        const val = Math.round(max * (1 - i / 4));
+        out += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" font-family="monospace" fill="currentColor" fill-opacity="0.45">${this.fmtTokens(val)}</text>`;
+      }
+      // 柱
+      buckets.forEach((b, i) => {
+        const h = Math.max(2, ((b.tokens / max) * (H - padT - padB)) | 0);
+        const x = padL + i * bw;
+        const y = H - padB - h;
+        const peak = b.tokens === max;
+        out += `<rect x="${(x + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h}" fill="${peak ? '#e63b2e' : 'currentColor'}" fill-opacity="${peak ? '1' : '0.32'}"><title>${new Date(b.t).toLocaleString()} · ${b.tokens} tok · ¥${this.num(b.cost)}</title></rect>`;
+      });
+      // 基线
+      out += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="currentColor" stroke-width="2"/>`;
+      // 包整段 <svg>（x-html 直接注入 div，规避 SVG g 元素 innerHTML 兼容问题）
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 190" preserveAspectRatio="none" style="display:block;width:100%;height:190px">${out}</svg>`;
+    },
+  };
+}
+</script>
+
+<script>
+// alpine-watchdog：3 秒后 Alpine 仍未初始化 → 显示诊断信息（纯 vanilla，不依赖 Alpine）
+(function () {
+  setTimeout(function () {
+    if (document.body.classList.contains('ready')) return;
+    var el = document.getElementById('bootLoading');
+    if (!el) return;
+    var alpineLoaded = typeof window.Alpine !== 'undefined';
+    var diag = alpineLoaded
+      ? 'Alpine.js loaded but app() threw an error.' +
+        '<br>Press F12 &gt; Console and send the red error to maintainer.' +
+        '<br>Possible cause: server console.html version mismatch.'
+      : 'Alpine.js failed to load (/alpine.js 404 or network).' +
+        '<br>Check: public/alpine.js exists on server.' +
+        '<br>Check: src/bridge.js is latest (has /alpine.js route).';
+    el.innerHTML = '<div style="text-align:center;max-width:520px;padding:20px">' +
+      '<div style="color:#e63b2e;font-family:monospace;font-size:14px;margin-bottom:16px;letter-spacing:.1em">FRONTEND INIT FAILED</div>' +
+      '<div style="color:#f2efe6;font-family:monospace;font-size:11px;line-height:2;text-align:left">' + diag +
+      '<br><br>Press Ctrl+Shift+R to bypass cache.</div></div>';
+  }, 3000);
+})();
+</script>
+</body>
+</html>

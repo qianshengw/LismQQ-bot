@@ -1,0 +1,136 @@
+{
+  // LismQQ-bot 配置模板。复制为 config.json 后编辑。
+  // 模型凭据按优先级解析：model.apiKey → 环境变量 DEEPSEEK_API_KEY。
+  "qq": {
+    // natcat shell 的 OneBot v11 WebSocket 反向/正向地址（正向 WS：桥接作为客户端连接）
+    "wsUrl": "ws://127.0.0.1:3001",
+    // OneBot v11 HTTP API 地址（发送消息等主动调用走这里；留空则全部走 WS action）
+    "httpUrl": "http://127.0.0.1:3000",
+    // OneBot accessToken，未配置留空
+    "accessToken": ""
+  },
+  "model": {
+    // DeepSeek 官方端点；任何 OpenAI 兼容端点均可（自定义端点示例见下方注释）
+    "baseUrl": "https://api.deepseek.com",
+    // 内置目录：deepseek-flash / deepseek-v4-pro；
+    // 自定义端点时 provider 随便起名，baseUrl 给完整的 /v1 路径即可
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    // 直接写死 key（不推荐）；留空则读环境变量 DEEPSEEK_API_KEY
+    // 自定义端点示例（LongCat）：
+    //   "provider": "longcat",
+    //   "model": "LongCat-2.5-Preview",
+    //   "baseUrl": "https://api.longcat.chat/openai/v1",
+    //   "apiKey": "ak_...",
+    "apiKey": "",
+    // pi thinking level：off / minimal / low / medium / high（模型不支持时自动钳制）
+    "thinkingLevel": "off",
+    // 每次回复的最大输出 token
+    "maxTokens": 2048
+  },
+  "persona": {
+    // 系统提示词；也支持指向文件（相对桥接目录），文件内容会覆盖内联值
+    "systemPrompt": "",
+    "systemPromptFile": "roles/default.md"
+  },
+  "memory": {
+    "enabled": true,
+    // 记忆池容量上限（FIFO 淘汰最旧）
+    "maxRecords": 300,
+    // 每次检索最多注入几条
+    "maxResults": 5,
+    // 写入侧：每轮对话自动记录用户提问（scope=utterance），与偏好分区隔离
+    "autoCaptureUtterance": true
+  },
+  "socialV2": {
+    // 二代仿真（AI 自主收发/唤醒/潜水/巡逻/群友记忆）
+    "enabled": true,
+    // "v2" = 命中唤醒触发器的消息只走唤醒 prompt 路径（自主收发）；
+    // 其他值 = v2 状态照常记录，但群聊响应仍走 @ 判定的常规链路
+    "mode": "v2",
+    // 唤醒合并窗口 ms：触发后等多久再唤醒（期间多条消息合并为一次）
+    // 3000 = 3 秒（原 8000 会让每条触发消息多等 5 秒才响应）
+    "batchWindowMs": 3000,
+    // 巡逻间隔 ms（自排 min~max）
+    "proactiveMinMs": 1800000,
+    "proactiveMaxMs": 5400000,
+    // 睡眠时长硬限制 ms：模型/控制台请求的睡眠时长会被夹到 [min, max]
+    // （与内置的 4 小时上限叠加，取更严者）
+    "sleepMinMs": 60000,
+    "sleepMaxMs": 7200000,
+    // 过期闲聊归档阈值 ms：超过这个时间的普通闲聊不再投喂（显式请求永不归档）
+    "staleChatMs": 1800000,
+    // 短时跟随窗口 ms：我上次发言（且是提问）后多久内算「接我的话」
+    "followUpWindowMs": 300000,
+    "limits": {
+      "maxSendPerMinute": 8,
+      "maxSendPerHour": 60,
+      // 唤醒限频分四档，互不挤占（见 README「唤醒限频（分四档）」）
+      // 显式请求（@我/私聊/戳一戳）——不会被常规额度卡住
+      "maxDirectWakePerMinute": 6,
+      "maxDirectWakePerHour": 120,
+      // 短时跟随（我问过话、对方接话）
+      "maxFollowUpWakePerMinute": 3,
+      "maxFollowUpWakePerHour": 60,
+      // 常规触发器（提到名字/向我提问/关键词/指定人/任意消息）
+      "maxWakePerMinute": 1,
+      "maxWakePerHour": 12,
+      // AI 自己的定时器（巡逻/回复检查/睡眠到点/手动）
+      "maxProactiveWakePerMinute": 1,
+      "maxProactiveWakePerHour": 20,
+      "burstMaxMessages": 8,
+      "proactiveBaseProbability": 0.3,
+      "noActionResetThreshold": 3
+    }
+  },
+  "socialV1": {
+    // 一代仿真（四相状态机：观望/活跃/试探/退场，选择性参与，[SILENT] 潜水）
+    "enabled": true,
+    // "v1" = 群聊响应由状态机接管（观望期概率触发、活跃期选择性沉默）；
+    // 其他值 = 状态照记，群聊响应走 @ 常规链路（可灰度）
+    "mode": "v1",
+    "limits": {
+      "triggerProbability": 0.1,
+      "skipProbability": 0.15,
+      "contextWindow": 20,
+      "idleWindowMs": 360000,
+      "idleRetryProbability": 0.25,
+      "maxReplyChars": 500,
+      "mustReplyKeywords": ["deepseek", "ai", "人工智能", "机器人"]
+    }
+  },
+  "allow": {
+    // QQ 号 / 群号白名单；留空数组且 allowAllWhenEmpty=true 时放行全部
+    "private": [],
+    "groups": [],
+    "allowAllWhenEmpty": false
+  },
+  "deny": {
+    // 黑名单，优先于白名单
+    "private": [],
+    "groups": []
+  },
+  "tools": {
+    // 是否给 agent 挂载 QQ 动作工具（qq_send_message 等，经 MCP stdio）
+    "enabled": true,
+    // 工具执行前的 QQ 侧发送白名单；空数组 = 只允许回复当前会话
+    "sendWhitelist": []
+  },
+  "sendDelayMs": 800,
+  "ackMessage": "",
+  "maxTurnSeconds": 300,
+  "history": {
+    // 单会话 transcript 最大消息条数，超出时触发裁剪
+    "maxMessages": 120,
+    // 裁剪方式：true = 把最旧区段压缩成一条摘要（推荐，AI 能接续早期话题）；
+    // false = 硬丢最旧（省一次模型调用，但会失忆）
+    "summarize": true
+  },
+  // 内部 HTTP（QQ 工具回调 + Web 控制台）监听；0 = 随机端口
+  // 未配置internalHost时仅监听127.0.0.1；本示例显式设0.0.0.0供局域网访问。控制台免token鉴权，勿映射公网
+  "internalPort": 3210,
+  "internalHost": "0.0.0.0",
+  // 内部 HTTP 令牌：仅供本机 MCP 工具回调自动使用（自动生成，无需配置）。
+  // 控制台页面本身不需要任何令牌——局域网内直接打开即可。
+  "internalToken": ""
+}
