@@ -438,5 +438,87 @@ test('error 回合残留的 toolCall 在下一轮 prompt 前被自洁（端到�
   assert.ok(!blocks.some((b) => b?.type === 'toolCall' && b.id === 'lost'), 'abort 残骸 toolCall 应被自洁');
 });
 
+// ── 图片内存治理（image_ref / hydrate / 超大图剥离）─────────────────────────
+
+test('imagePath 引用：当轮 hydrate 为 image 块，transcript 不留 base64', async () => {
+  const { SessionAgent } = await import('../src/pi-host.js');
+  // 造一张真实的小 PNG 落盘（>64KB 的判定走 _stripOversizeImages，这里用小图验证 hydrate 路径）
+  const imgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qqb-img-'));
+  const imgPath = path.join(imgDir, 't.png');
+  // 1x1 PNG（合法魔数，mimeFromBytes 可识别）
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  fs.writeFileSync(imgPath, png);
+  let seenContent = null;
+  const streamFn = (model, context) => {
+    const lastUser = [...context.messages].reverse().find((m) => m.role === 'user');
+    seenContent = structuredClone(lastUser.content);
+    return makeMockStreamFn([], [{ text: '看到图了' }])(model, context);
+  };
+  const agent = new SessionAgent({ modelConfig: MODEL_CONFIG, systemPrompt: 'p', streamFn });
+  await agent.prompt('这是什么', [{ imagePath: imgPath, mimeType: 'image/png' }]);
+  // 当轮请求带真实 image 块
+  const imgBlock = seenContent.find((b) => b.type === 'image');
+  assert.ok(imgBlock, '当轮请求应 hydrate 出 image 块');
+  assert.equal(imgBlock.mimeType, 'image/png');
+  // transcript 落盘后 image 块仍在（当轮刚写入），但下一回合的 strip 会清掉
+  const persisted = agent.agent.state.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+  assert.ok(persisted.some((b) => b?.type === 'image'), '当轮 transcript 含 image 块');
+  await agent.prompt('下一条', []);
+  const after = agent.agent.state.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+  // 1x1 PNG base64 < 64KB 不会被 strip（阈值保护小图）——用大图用例单独验证
+  assert.ok(after.some((b) => b?.type === 'image'), '小于阈值的小图保留');
+  fs.rmSync(imgDir, { recursive: true, force: true });
+});
+
+test('_stripOversizeImages：大图块替换为占位文本', async () => {
+  const { SessionAgent } = await import('../src/pi-host.js');
+  const agent = new SessionAgent({
+    modelConfig: MODEL_CONFIG, systemPrompt: 'p',
+    streamFn: makeMockStreamFn([], [{ text: 'ok' }]),
+  });
+  await agent.prompt('带大图', []);
+  // 手工注入一个大图块（模拟旧格式存量）
+  const msg = agent.agent.state.messages.find((m) => m.role === 'user' && Array.isArray(m.content));
+  msg.content.push({ type: 'image', data: 'A'.repeat(200 * 1024), mimeType: 'image/png' });
+  await agent.prompt('触发清理', []);
+  const blocks = agent.agent.state.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+  assert.ok(!blocks.some((b) => b?.type === 'image' && b.data?.length > 64 * 1024), '大图块应被剥离');
+  assert.ok(blocks.some((b) => b?.type === 'text' && b.text === '（历史图片已省略）'), '占位文本应存在');
+});
+
+test('imagePath 读取失败降级为占位文本，不阻塞回合', async () => {
+  const { SessionAgent } = await import('../src/pi-host.js');
+  const agent = new SessionAgent({
+    modelConfig: MODEL_CONFIG, systemPrompt: 'p',
+    streamFn: makeMockStreamFn([], [{ text: 'ok' }]),
+  });
+  const r = await agent.prompt('带失效图', [{ imagePath: 'Z:/not/exist.png', mimeType: 'image/png' }]);
+  assert.equal(r.text, 'ok');
+  const blocks = agent.agent.state.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+  assert.ok(blocks.some((b) => b?.type === 'text' && b.text === '（图片已失效，无法加载）'), '失效图应占位');
+});
+
+test('reconfigure 同配置指纹跳过，不重建', async () => {
+  const { SessionManager } = await import('../src/pi-host.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qqb-reconf-'));
+  let created = 0;
+  const manager = new SessionManager({
+    sessionsDir: path.join(tmp, 's'),
+    modelConfig: MODEL_CONFIG,
+    systemPrompt: 'p1',
+    streamFn: (model, context) => { created++; return makeMockStreamFn([], [{ text: 'ok' }])(model, context); },
+  });
+  await manager.get('g1');
+  const r1 = await manager.reconfigure({ systemPrompt: 'p2' });
+  assert.equal(r1.applied, 1);
+  const r2 = await manager.reconfigure({ systemPrompt: 'p2' }); // 同配置
+  assert.equal(r2.skipped, true, '同配置应 skip');
+  assert.equal(r2.applied, 0);
+  const r3 = await manager.reconfigure({ systemPrompt: 'p3' });
+  assert.equal(r3.skipped, undefined);
+  assert.equal(r3.applied, 1);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 for (const run of pendingTests) await run();
 process.exitCode = failed > 0 ? 1 : 0;

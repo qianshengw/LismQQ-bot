@@ -380,7 +380,8 @@ test('simulation polling refreshes states without replacing unsaved form edits',
   const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m => m[1].includes('function app()'))[1];
   let poll;
   const sandbox = { localStorage: { getItem: () => '', setItem() {} }, console,
-    document: { body: { classList: { add() {} } } }, setInterval: fn => { poll = fn; return 1; } };
+    document: { body: { classList: { add() {} } } }, setInterval: fn => { poll = fn; return 1; },
+    clearInterval() {}, setTimeout, clearTimeout };
   vm.createContext(sandbox); vm.runInContext(script, sandbox);
   const app = sandbox.app();
   app.refreshShell = async () => {}; app.loadView = () => {};

@@ -14,6 +14,7 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { createModels, createProvider, Type } from '@earendil-works/pi-ai';
 import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek';
 import { renderPreferenceBlock } from './memory-pool.js';
+import { loadImageForPrompt } from './media.js';
 
 /** pi-ai 内部 openai-completions 实现（自定义 OpenAI 兼容端点用；按需动态加载）。 */
 let _openAiApiImpl = null;
@@ -523,7 +524,15 @@ export class SessionAgent {
     this._sanitizeTranscript();
     const content = [{ type: 'text', text }];
     for (const image of images ?? []) {
-      if (image?.data && image?.mimeType) content.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+      // 图片引用形状（内存治理）：transcript 只存 imagePath（几十字节），
+      // 本轮请求才读文件转 base64；读不出来就占位说明，不阻塞回合。
+      if (image?.imagePath) {
+        const loaded = loadImageForPrompt(image.imagePath);
+        if (loaded) content.push({ type: 'image', data: loaded.data, mimeType: loaded.mimeType });
+        else content.push({ type: 'text', text: '（图片已失效，无法加载）' });
+      } else if (image?.data && image?.mimeType) {
+        content.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+      }
     }
     // 回合超时：maxTurnSeconds 到点 abort（防止一个回合永久占住串行队列）
     const turnTimeoutMs = (this.maxTurnSeconds ?? 300) * 1000;
@@ -533,6 +542,7 @@ export class SessionAgent {
       await this.agent.prompt([{ role: 'user', content, timestamp: Date.now() }]);
     } finally {
       clearTimeout(timer);
+      this._stripOversizeImages();
       await this._trimHistory();
     }
     if (timedOut) {
@@ -541,6 +551,28 @@ export class SessionAgent {
     const last = this.agent.state.messages[this.agent.state.messages.length - 1];
     const text2 = assistantText(last);
     return { text: text2, errorMessage: last?.errorMessage };
+  }
+
+  /**
+   * 内存治理：把历史消息里遗留的大体积 image 块（旧格式内联 base64）替换为占位文本。
+   * 新格式（image_ref/imagePath）本身就是几十字节，无需处理。
+   * 每回合结束调用——图片只在「当轮请求」时读盘 hydrate，不跨回合驻留 transcript。
+   */
+  _stripOversizeImages(minBytes = 64 * 1024) {
+    const messages = this.agent.state.messages;
+    if (messages.length === 0) return;
+    let stripped = 0;
+    for (const m of messages) {
+      if (!Array.isArray(m?.content)) continue;
+      for (let i = 0; i < m.content.length; i++) {
+        const block = m.content[i];
+        if (block?.type === 'image' && typeof block.data === 'string' && block.data.length > minBytes) {
+          m.content[i] = { type: 'text', text: '（历史图片已省略）' };
+          stripped++;
+        }
+      }
+    }
+    if (stripped > 0) console.warn(`[pi-host] ${this.memoryNamespace} 已剥离 ${stripped} 个内联图片块（内存治理）`);
   }
 
   /** 运行中追加消息（steer）。 */
@@ -751,6 +783,12 @@ export class SessionManager {
   }
 
   async _reconfigure({ modelConfig, systemPrompt } = {}) {
+    // 指纹去重（内存治理 P1-4）：控制台轮询/身份刷新等触发同配置 reconfigure 时直接跳过，
+    // 避免 50 次全量重建（每次都丢旧 Agent 的闭包/引用进 GC 压力）。
+    const fingerprint = JSON.stringify({ modelConfig: modelConfig ?? null, systemPrompt: systemPrompt ?? null });
+    if (fingerprint === this._lastReconfigFingerprint) {
+      return { ok: true, version: this.configVersion, applied: 0, pending: 0, skipped: true };
+    }
     await Promise.all(this.creating.values());
     if (modelConfig) {
       // 语义明确（QUALITY-REPORT P2-10）：
@@ -771,6 +809,7 @@ export class SessionManager {
       this.systemPrompt = prompt;
     }
     this.configVersion = (this.configVersion ?? 0) + 1;
+    this._lastReconfigFingerprint = fingerprint;
 
     const keys = [...this.agents.keys()];
     let applied = 0;

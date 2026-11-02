@@ -5,6 +5,9 @@
 //   - 超限/其他格式 → 无 sharp 可用时放行原图（由 pi 侧/端点侧兜底）或拒绝
 // 一切抓取走 safe-fetch（SSRF 逐跳校验）。
 import { assertResolvablePublicHost, isAllowedHost } from './safe-fetch.js';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const MAX_BYTES = 1024 * 1024; // 1MiB：base64 后 ≈1.33MB，token 成本可控
 const FETCH_TIMEOUT_MS = 15000;
@@ -97,4 +100,47 @@ export async function fetchImagesForModel(urls, { maxCount = 3 } = {}) {
     if (r.ok) out.push({ data: r.data, mimeType: r.mimeType, isAnimated: r.mimeType === 'image/gif' });
   }
   return out;
+}
+
+// ── 图片落盘（内存治理：transcript 只存引用，prompt 时才读文件）──────────────
+
+const EXT_BY_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+
+/**
+ * 把 base64 图片写入磁盘，返回引用形状（不再携带 base64）。
+ * 同一张图（hash 相同）跳过重复写。写盘失败降级为内联 data（旧路径，不丢图）。
+ * @param {{data: string, mimeType: string, isAnimated?: boolean}} img
+ * @param {string} stateDir
+ * @returns {{imagePath?: string, data?: string, mimeType: string, isAnimated?: boolean}}
+ */
+export function persistImage(img, stateDir) {
+  if (!img?.data) return img;
+  try {
+    const dir = path.join(stateDir, 'images');
+    fs.mkdirSync(dir, { recursive: true });
+    const hash = crypto.createHash('sha1').update(img.data).digest('hex').slice(0, 20);
+    const ext = EXT_BY_MIME[img.mimeType] ?? '.bin';
+    const imagePath = path.join(dir, `${hash}${ext}`);
+    if (!fs.existsSync(imagePath)) {
+      const tmp = `${imagePath}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, Buffer.from(img.data, 'base64'));
+      fs.renameSync(tmp, imagePath);
+    }
+    return { imagePath, mimeType: img.mimeType, isAnimated: img.isAnimated };
+  } catch (error) {
+    console.warn(`[media] 图片落盘失败（降级内联）: ${error?.message ?? error}`);
+    return img; // 兜底：保持旧的内联 data 形状
+  }
+}
+
+/** prompt 前把 imagePath 读回 base64（模型 API 只认内联 data）。 */
+export function loadImageForPrompt(imagePath) {
+  try {
+    const buf = fs.readFileSync(imagePath);
+    const mime = mimeFromBytes(buf);
+    return { data: buf.toString('base64'), mimeType: mime || 'image/png' };
+  } catch (error) {
+    console.warn(`[media] 图片读取失败（prompt 侧降级）: ${error?.message ?? error}`);
+    return null;
+  }
 }

@@ -105,11 +105,39 @@ export function stripSilentMarkers(text) {
 // 退场话术（整句）：模型从 v1 退场相学舌的固定收尾模式，用户要求全程禁用。
 export const FAREWELL_PHRASE_RE = /^(?:那|那么)?(?:我)?(?:先)?(?:撤了|撤啦|下了|下线(?:了)?|去(?:忙|吃饭|睡觉|洗澡|干活)(?:了|啦|咯)|告辞(?:了)?|回见(?:啦|了)?|闪了|溜了|跑了|开溜(?:了)?|撤退(?:了)?|下播(?:了)?|潜水去了|先走(?:一步|了)|收工(?:了)?)[\s。.~～!！?？]*$/;
 
-/** 整句退场话术判定（≤20 字短句；带实质内容的不算）。 */
+/**
+ * 沉默旁白变体：决定不参与时模型又顺嘴解释一句才收尾（「群里没聊关于我的，收」「好，那我撤了，你们聊」）。
+ * 判定：短句 + 无问号 + 收尾动词出现在句中/句尾（前面带解释也算）。
+ * 带实质内容（问句 / 转折延续 / 收受宾语）不拦。
+ */
+const FAREWELL_TAIL_RE = /(?:撤(?:了|啦)?|溜(?:了)?|闪(?:了)?|潜水(?:去(?:了|啦|咯))?|下线(?:了)?|下播(?:了)?|收工(?:了)?|告辞(?:了)?|撤退(?:了)?|回见(?:啦|了)?|先走(?:一步|了)?|跑(?:了|路)|开溜(?:了)?|忙(?:去|了)|吃饭(?:去|了)?|睡觉(?:去|了)?|洗澡(?:去|了)?)[\s。.~～!！?？]*(?:啦|咯|了|呦|哟)?$/;
+
+const FAREWELL_YIELD_RE = /(?:先撤了|先溜了|先闪了|先潜水了|先下了|不聊了|不说了|不掺和了|不参与了|不打扰了|收了收了|收收|到这|到此)/;
+
+// 「收」歧义保护：收快递/收货/收款/收红包等收受动作不是收尾
+const FAREWELL_RECEIVE_RE = /收(?:货|款|藏|件|包裹|快递)|收(?:到信息|到消息)|(?:红包|快递|包裹)(?:我)?(?:先)?收(?:到|了)/;
+
+/** 沉默旁白判定（≤24 字短句；问句与收受/延续正文不算）。 */
+function isFarewellAside(text) {
+  const s = String(text ?? '').trim();
+  if (!s || s.length > 24) return false;
+  if (/[?？]/.test(s)) return false;
+  const hasContinuation = /(?:但是|不过|然后|再(?:回|见|聊|说)|继续|等(?:一)?下|再说)/.test(s);
+  // 「收」是普通高频字：仅句尾单独作收尾动词时才拦
+  if (/(?:收(?:了)?|到这(?:里|儿)?|到此)[\s。.~～!！?？]*$/.test(s) && !FAREWELL_RECEIVE_RE.test(s)) return true;
+  if (!hasContinuation) {
+    if (FAREWELL_YIELD_RE.test(s)) return true;
+    if (FAREWELL_TAIL_RE.test(s)) return true;
+  }
+  return false;
+}
+
+/** 退场话术判定：整句退场 + 沉默旁白变体（带实质内容/问句的短句不算）。 */
 export function isFarewellPhrase(text) {
   const s = String(text ?? '').trim();
-  if (!s || s.length > 20) return false;
-  return FAREWELL_PHRASE_RE.test(s);
+  if (!s || s.length > 24) return false;
+  if (FAREWELL_PHRASE_RE.test(s)) return true;
+  return isFarewellAside(s);
 }
 
 // ── 默认配置（对齐旧版）────────────────────────────────────────────────────

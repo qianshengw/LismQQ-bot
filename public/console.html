@@ -857,7 +857,8 @@ function app() {
       document.body.classList.add('ready');
       try { this.theme = localStorage.getItem('qq-console-theme') === 'light' ? 'light' : 'dark'; } catch (e) { this.theme = 'dark'; }
       this.refreshShell().then(() => this.loadView('overview'));
-      this._timer = setInterval(async () => {
+      // 轮询降频（内存治理 P1-4）：页面不可见时 60s（之前恒 15s，服务端日志里 50 次热切换的围观者）。
+      const tick = async () => {
         if (this._refreshing) return;
         this._refreshing = true;
         try {
@@ -874,7 +875,19 @@ function app() {
             if (prefix === 'v1') this.v1.pendingSummaries = s.pendingSummaries || {};
           }
         } catch (e) {} finally { this._refreshing = false; }
-      }, 15000);
+      };
+      // 轮询降频（内存治理 P1-4）：页面不可见时 60s（之前恒 15s，服务端日志里 50 次热切换的围观者）。
+      const INTERVAL_HIDDEN = 60000;
+      const INTERVAL_VISIBLE = 15000;
+      const startLoop = () => {
+        clearInterval(this._timer);
+        const delay = (typeof document !== 'undefined' && document.hidden) ? INTERVAL_HIDDEN : INTERVAL_VISIBLE;
+        this._timer = setInterval(tick, delay);
+      };
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', startLoop);
+      }
+      startLoop();
     },
 
     // ── 导航 ──

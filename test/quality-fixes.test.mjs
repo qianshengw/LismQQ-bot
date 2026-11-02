@@ -463,10 +463,13 @@ await test('P2-08：reply / burst / send / 底层发送都拦退场话', async (
   const res = await bridge._sendToSession('g200', '那我先撤了');
   assert.equal(res?.blocked, 'farewell', '底层发送必须拦退场话');
   assert.equal(sent.length, 0);
-  // 带正文的正常内容放行
-  const ok = await call(bridge, '/agent/send', { method: 'POST', headers, body: { messages: ['那我先撤了，你们聊'] } });
+  // 带实质正文的正常内容放行（沉默旁白变体则被拦）
+  const ok = await call(bridge, '/agent/send', { method: 'POST', headers, body: { messages: ['我查了一下，这个活动周五截止，你们记得报名'] } });
   assert.equal(ok.status, 200);
   assert.equal(sent.length, 1, '带正文应放行');
+  const blocked2 = await call(bridge, '/agent/send', { method: 'POST', headers, body: { messages: ['那我先撤了，你们聊'] } });
+  assert.equal(blocked2.status, 200);
+  assert.equal(sent.length, 1, '沉默旁白变体应被拦');
   if (bridge.internalServer) await new Promise((resolve) => bridge.internalServer.close(resolve));
   fs.rmSync(tmp, { recursive: true, force: true });
 });

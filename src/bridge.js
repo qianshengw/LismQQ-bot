@@ -22,7 +22,7 @@ import { connectMcpTools } from './mcp/wrap.js';
 import { createKnownTokens, redactAll, looksSensitive } from './sensitive.js';
 import { mdToPlain, splitForQQ, normalizeChatSpacing } from './md-to-plain.js';
 import { extractForwardIds, formatForwardMessages, renderForwardBlock, sanitizeForwardId } from './forward.js';
-import { fetchImagesForModel } from './media.js';
+import { fetchImagesForModel, persistImage } from './media.js';
 import { resolvePriceTable, normalizeUsage, isPeakAt, ratesAt, costOfBuckets, totalTokensOf } from './model-prices.js';
 import { SocialV2Store, canonicalKey as canonicalKeyForV2, keyOf as v2KeyOf, DEFAULT_WAKE_CONFIG, tierOfReason, WAKE_TIER } from './social-v2.js';
 import { WakeScheduler } from './wake-scheduler.js';
@@ -520,12 +520,14 @@ export class Bridge {
     }
 
     // 定期落盘
+    this._memWarnCount = 0;
     this.flushTimer = setInterval(() => {
       this.sessionManager?.saveAll();
       this.saveMemory();
       this.ledger.flush();
       this.socialV1?.save(); // L3：v1 相位落盘（崩机不丢状态机）
       this.socialV2?.save();
+      this._checkMemoryWatermark();
     }, 60000);
 
     // 一代仿真心跳：5 秒 tick 推进状态机
@@ -538,11 +540,23 @@ export class Bridge {
     process.once('SIGTERM', this.shutdownHandler);
   }
 
+  /** 内存水位监控（P2-5）：OOM 前留证据；连续告警说明有泄漏需要处理。 */
+  _checkMemoryWatermark(thresholdMb = 350) {
+    const usage = process.memoryUsage();
+    const heapMb = Math.round(usage.heapUsed / 1024 / 1024);
+    const rssMb = Math.round(usage.rss / 1024 / 1024);
+    if (heapMb > thresholdMb) {
+      this._memWarnCount++;
+      console.warn(`[bridge] 内存告警 #${this._memWarnCount}: heap=${heapMb}MB rss=${rssMb}MB（阈值 ${thresholdMb}MB）——若持续增长请检查图片/会话堆积`);
+    } else if (this._memWarnCount > 0) {
+      this._memWarnCount = 0; // 回落即复位
+    }
+  }
+
   async stop() {
     if (!this.running) return;
     this.running = false;
-    clearInterval(this.flushTimer);
-    if (this.v1LoopTimer) clearInterval(this.v1LoopTimer);
+    clearInterval(this.flushTimer);    if (this.v1LoopTimer) clearInterval(this.v1LoopTimer);
     this.wakeScheduler?.stop();
     this.socialV1?.save();
     for (const agent of this.sessionManager?.agents.values() ?? []) agent.abort();
@@ -896,7 +910,7 @@ export class Bridge {
       if (fetched.length < imageUrls.length) {
         extra.push(`（注：${imageUrls.length - fetched.length} 张图片未能加载）`);
       }
-      images = fetched.map(({ data, mimeType }) => ({ data, mimeType, url: '' }));
+      images = fetched.map(({ data, mimeType }) => persistImage({ data, mimeType }, this.stateDir));
     }
 
     return { message: { ...message, text: [message.text?.trim(), ...extra].filter(Boolean).join('\n') }, images };
@@ -1155,9 +1169,12 @@ export class Bridge {
     }
     parts.push(
       '你可以：用 qq_send_message / qq_send_burst 发言（想分条说就用数组）；' +
-      '用 qq_mark_read 确认已读；用 qq_set_wake_config 设置下次醒来的条件。'
+      '用 qq_mark_read 确认已读；用 qq_set_wake_config 设置下次醒来的条件；' +
+      '用 memory_write 记住用户的长期偏好（只记稳定事实，别记闲聊）。'
     );
-    parts.push('【收尾流程】回应后按系统中的等待与收尾规则观察；不要抢半句，也不要发退场话。');
+    parts.push('【收尾流程】记住：你输出的任何文字都会被直接发进群里。决定不参与时，一个字都不要输出，'
+      + '直接用 qq_set_wake_config 潜水（或 qq_mark_read 确认已读）安静收尾；'
+      + '不要输出「我撤了」「群里没聊我的」这类解释、旁白或收尾话。回应后按系统中的等待与收尾规则观察；不要抢半句。');
     return parts.join('\n');
   }
 
@@ -3441,6 +3458,11 @@ export async function main() {
   // Fatal errors must produce a non-zero exit so systemd can restart a broken process.
   process.on('uncaughtExceptionMonitor', error => {
     console.error('[bridge] 致命异常:', error?.stack ?? error);
+  });
+  // 未处理的 Promise 拒绝：Node 15+ 默认直接杀死进程（"运行一天就停"的独立崩溃源）。
+  // 降级为日志报错——单条消息链路故障不应拖死整只 bot。
+  process.on('unhandledRejection', (reason) => {
+    console.error('[bridge] 未处理的 Promise 拒绝:', reason?.stack ?? reason);
   });
 
   const bridge = new Bridge({ config });

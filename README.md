@@ -210,11 +210,24 @@ tail -f state/bridge.log
 
 ### 低配优化建议
 
-- **内存**：`MemoryMax=512M` 够用；会话多、历史长时适当调大 `history.maxMessages` 的裁剪频率
-- **存储**：`state/` 会持续增长（transcript + 账本），定期清理或限制会话数
+- **内存**：`MemoryMax=512M` 够用；图片走磁盘引用（`state/images/`），不占会话内存
+- **存储**：小盘设备（≤4G）用 `./disk-cleanup.sh` 一键回收（见下节）
 - **日志**：`start.sh` 已做 5MB 轮转；systemd 用 `journalctl --vacuum-size`
 - **swap**：512MB 设备建议开 256–512MB swap，防 `npm install` / 摘要压缩时 OOM
 - **模型**：低配设备建议用便宜、响应快的模型（如 `deepseek-flash`），少开 `thinkingLevel`
+
+### 存储维护（小盘设备）
+
+3.3G 小盘上 QQ 生态（本体 + 缓存）是空间大户。`disk-cleanup.sh` 把这套维护固化了：
+
+```bash
+./disk-cleanup.sh --status        # 只看占用报告
+./disk-cleanup.sh                 # 交互清理（apt 缓存 / journald / QQ 缓存 / bot 旧图）
+./disk-cleanup.sh --full          # 全量：QQ 运行中会询问，自动"停 QQ → 清缓存 → 重启 QQ"
+./disk-cleanup.sh --full --auto   # 全量无人值守（同上，不询问）
+```
+
+安全设计：聊天记录数据库（`nt_db`）、QQ 程序本体、NapCat 运行时永不触碰；脚本中断会自动恢复 QQ；每次操作写 `state/disk-cleanup.log`。建议每月或磁盘 85% 时跑一次。
 
 ### 验证
 
@@ -245,7 +258,10 @@ LismQQ-bot/
 │  ├─ console.html         控制台
 │  └─ alpine.js            本地 Alpine.js（无外网依赖）
 ├─ roles/default.md        人设文件
-├─ state/                  运行时数据（会话/记忆/账本/锁）
+├─ scripts/
+│  └─ clean-legacy-images.mjs   存量内联图片清理（一次性）
+├─ disk-cleanup.sh         存储回收（apt/journal/QQ 缓存，QQ 生命周期自动管理）
+├─ state/                  运行时数据（会话/记忆/账本/锁/图片落盘）
 ├─ config.example.jsonc    配置模板
 ├─ README.md               本文件
 └─ README-V.md             项目详细技术文档

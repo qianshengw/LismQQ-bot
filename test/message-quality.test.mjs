@@ -166,7 +166,7 @@ test('stripSilentMarkers：剥除散落标记，剥完为空视为沉默', () =>
 
 // ── 退场话术闸（用户要求全程禁退场话）──
 
-test('isFarewellPhrase：整句退场话术命中、带正文不命中', () => {
+test('isFarewellPhrase：整句退场话术命中、沉默旁白变体命中、带实质正文不命中', () => {
   assert.equal(isFarewellPhrase('我先撤了'), true);
   assert.equal(isFarewellPhrase('撤了'), true);
   assert.equal(isFarewellPhrase('那我去忙了'), true);
@@ -175,9 +175,20 @@ test('isFarewellPhrase：整句退场话术命中、带正文不命中', () => {
   assert.equal(isFarewellPhrase('回见~'), true);
   assert.equal(isFarewellPhrase('下线了。'), true);
   assert.equal(isFarewellPhrase('我先撤了。'), true, '尾随标点命中');
-  assert.equal(isFarewellPhrase('那我先撤了，你们聊'), false, '带正文不命中');
-  assert.equal(isFarewellPhrase('撤了？真的假的'), false, '问句带内容不命中');
+  // 沉默旁白变体（本次修复目标：解释+收尾的短句也要拦）
+  assert.equal(isFarewellPhrase('那我先撤了，你们聊'), true, '解释+退场变体命中');
+  assert.equal(isFarewellPhrase('群里没聊关于我的，收'), true, '旁白+句尾收命中');
+  assert.equal(isFarewellPhrase('收了收了'), true, '重复收尾命中');
+  assert.equal(isFarewellPhrase('没啥聊的，潜水去了'), true, '旁白+潜水命中');
+  assert.equal(isFarewellPhrase('先不聊了'), true, '不聊了收尾命中');
+  assert.equal(isFarewellPhrase('到这了，收'), true, '到这+收命中');
+  // 不误伤
+  assert.equal(isFarewellPhrase('撤了？真的假的'), false, '问句不命中');
   assert.equal(isFarewellPhrase('今晚吃什么'), false);
+  assert.equal(isFarewellPhrase('收到，马上去办'), false, '收到的收不拦');
+  assert.equal(isFarewellPhrase('快递到了我先收了再回你'), false, '收快递的收不拦');
+  assert.equal(isFarewellPhrase('先不聊了，但是晚饭后继续'), false, '带转折正文不命中');
+  assert.equal(isFarewellPhrase('这个问题挺有意思，先撤了那句之外我想再聊聊'), false, '较长正文不命中');
   assert.equal(isFarewellPhrase(''), false);
   assert.equal(isFarewellPhrase(null), false);
 });

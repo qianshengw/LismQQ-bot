@@ -564,10 +564,14 @@ await test('D2：退场话闸——整句不外发、带正文放行、分条过
   await bridge.sendToQQ({ groupId: '200', userId: '1' }, '我去忙了。');
   await bridge.sendToQQ({ groupId: '200', userId: '1' }, '告辞~');
   assert.equal(sent.length, 0, '整句退场话不得外发');
-  // 带正文放行
+  // 沉默旁白变体也不外发（解释+收尾短句）
   await bridge.sendToQQ({ groupId: '200', userId: '1' }, '那我先撤了，你们聊');
+  await bridge.sendToQQ({ groupId: '200', userId: '1' }, '群里没聊关于我的，收');
+  assert.equal(sent.length, 0, '沉默旁白变体不得外发');
+  // 带实质正文放行
+  await bridge.sendToQQ({ groupId: '200', userId: '1' }, '我查了一下，这个活动周五截止，你们记得报名');
   assert.equal(sent.length, 1, '带正文应放行');
-  assert.ok(String(sent[0].msg).includes('你们聊'));
+  assert.ok(String(sent[0].msg).includes('周五截止'));
   // 分条过滤：正常条发送、退场条被滤
   sent.length = 0;
   const r = await call(bridge, '/agent/send', {
