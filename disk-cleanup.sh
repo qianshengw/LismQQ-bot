@@ -2,25 +2,30 @@
 # LismQQ-bot 存储回收脚本（3.3G 小盘设备专用，openstick / WiFi 棒）
 #
 # 用法：
-#   ./disk-cleanup.sh            # 交互模式：先预览，逐项确认
-#   ./disk-cleanup.sh --auto     # 自动模式：只做零风险项（apt/journal/QQ日志）
-#   ./disk-cleanup.sh --full --auto   # 全量自动：含媒体缓存（需先停 QQ/NapCat）
-#   ./disk-cleanup.sh --status   # 只看占用报告，不删任何东西
+#   ./disk-cleanup.sh                 # 交互模式：先预览，逐项确认
+#   ./disk-cleanup.sh --auto          # 自动模式：只做零风险项（apt/journal/QQ日志）
+#   ./disk-cleanup.sh --full          # 全量交互：含 QQ 缓存（QQ 运行中会询问是否停止）
+#   ./disk-cleanup.sh --full --auto   # 全量自动：含 QQ 缓存（QQ 运行中自动停止并重启）
+#   ./disk-cleanup.sh --status        # 只看占用报告，不删任何东西
 #
 # 安全设计：
-#   - 永不触碰：nt_db（聊天记录）、/opt/QQ、estrella-napcat、qq-pi、/usr
-#   - QQ 缓存清理要求 QQ 已停止（检测到 QQ 进程时拒绝执行第 3 类）
+#   - 永不触碰：nt_db（聊天记录）、/opt/QQ、estrella-napcat 运行时、qq-pi、/usr
+#   - QQ 缓存清理前自动管理 QQ 生命周期：询问停止 → 验证真停 → 清理 → 重启 → 验证复活
+#   - 脚本中途被打断（Ctrl+C/断线）时，若已停 QQ 会尝试自动重启（trap 守护）
 #   - 每次清理写入 state/disk-cleanup.log，可追溯
 
 set -u
 
 MODE="interactive"
 FULL=0
-[ "${1:-}" = "--status" ] && MODE="status"
-[ "${1:-}" = "--auto" ] && MODE="auto"
-[ "${1:-}" = "--full" ] && { FULL=1; shift 2>/dev/null || true; }
-[ "${1:-}" = "--full" ] && FULL=1
-[ "${2:-}" = "--auto" ] && MODE="auto"
+for arg in "$@"; do
+  case "$arg" in
+    --status) MODE="status" ;;
+    --auto)   MODE="auto" ;;
+    --full)   FULL=1 ;;
+    *) echo "未知参数: $arg（支持 --status / --auto / --full）"; exit 1 ;;
+  esac
+done
 
 # 项目根目录（脚本在 qq-pi 内）；state 日志目录可能不存在则退回 /tmp
 if [ -d ./state ]; then LOGDIR=./state; else LOGDIR=/tmp; fi
@@ -31,7 +36,98 @@ HR() { echo "──────────────────────�
 
 FREED_START=$(df / --output=used -B1 2>/dev/null | tail -1)
 
-# ── 状态报告 ─────────────────────────────────────────────────────────────────
+# ── QQ 生命周期管理 ──────────────────────────────────────────────────────────
+QQ_SERVICE=""          # 探测到的 systemd 服务名（可能为空 = 无 systemd 或未找到）
+WAS_RUNNING=0          # 清理前 QQ 是否在跑（原状恢复用）
+QQ_STOPPED_BY_US=0     # 是否由本脚本执行了停止（trap 恢复判断用）
+
+qq_running() {
+  pgrep -f 'opt/QQ/qq' >/dev/null 2>&1 && return 0
+  pgrep -f estrella-napcat >/dev/null 2>&1 && return 0
+  return 1
+}
+
+qq_detect_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    QQ_SERVICE=""
+    return
+  fi
+  # 动态探测：优先 estrella-napcat，兜底任意 napcat/qq 相关的 running 服务
+  QQ_SERVICE=$(systemctl list-units --type=service --no-legend 2>/dev/null \
+    | awk '{print $1}' | grep -iE 'napcat' | head -1)
+  [ -z "$QQ_SERVICE" ] && QQ_SERVICE=$(systemctl list-units --type=service --no-legend 2>/dev/null \
+    | awk '{print $1}' | grep -iE '^qq|qq\.service' | head -1)
+  [ -z "$QQ_SERVICE" ] && QQ_SERVICE=""
+}
+
+qq_stop() {
+  qq_detect_service
+  if [ -n "$QQ_SERVICE" ]; then
+    log "停止 QQ：systemctl stop $QQ_SERVICE"
+    systemctl stop "$QQ_SERVICE" 2>/dev/null
+  else
+    log "未找到 QQ systemd 服务，走 pkill 停止"
+  fi
+  pkill -f 'opt/QQ/qq' 2>/dev/null
+  pkill -f estrella-napcat 2>/dev/null
+  return 0
+}
+
+# 轮询验证真停；10s 宽限后 -9 强杀再验 5s；返回 0=已停 1=停不掉
+qq_wait_stopped() {
+  local i
+  for i in $(seq 1 10); do
+    qq_running || return 0
+    sleep 1
+  done
+  echo "  宽限期未退出，强制杀（-9）…"
+  log "QQ 宽限 10s 未退出，pkill -9 强杀"
+  pkill -9 -f 'opt/QQ/qq' 2>/dev/null
+  pkill -9 -f estrella-napcat 2>/dev/null
+  for i in $(seq 1 5); do
+    qq_running || return 0
+    sleep 1
+  done
+  return 1
+}
+
+qq_start() {
+  if [ -n "$QQ_SERVICE" ]; then
+    log "重启 QQ：systemctl start $QQ_SERVICE"
+    systemctl start "$QQ_SERVICE" 2>/dev/null
+    sleep 3
+    if systemctl is-active --quiet "$QQ_SERVICE" 2>/dev/null && qq_running; then
+      log "QQ 已重启（$QQ_SERVICE active）"
+      echo "✅ QQ 已重启"
+      return 0
+    fi
+    # is-active 通过但进程还没起来：再等等
+    sleep 5
+    if qq_running; then
+      log "QQ 已重启（进程已出现）"
+      echo "✅ QQ 已重启"
+      return 0
+    fi
+    echo "⚠️  systemctl start 已执行但进程未检出——请手动确认：systemctl status $QQ_SERVICE"
+    log "QQ 重启验证失败（service=$QQ_SERVICE）"
+    return 1
+  fi
+  echo "⚠️  无 systemd 服务名，请手动启动 QQ/NapCat（原启动命令）"
+  log "QQ 需手动启动（未找到服务名）"
+  return 1
+}
+
+# trap 守护：脚本在「已停 QQ、未重启」区间被打断时，退出前尝试拉起
+qq_restore_on_exit() {
+  if [ "$QQ_STOPPED_BY_US" -eq 1 ]; then
+    QQ_STOPPED_BY_US=0
+    echo ""
+    echo "脚本中断——恢复 QQ…"
+    qq_start
+  fi
+}
+trap qq_restore_on_exit EXIT INT TERM
+
 report() {
   HR
   echo "当前磁盘占用："
@@ -47,15 +143,15 @@ report() {
   HR
 }
 
-report
-[ "$MODE" = "status" ] && exit 0
-
 # ── 确认工具 ─────────────────────────────────────────────────────────────────
 ask() {
   [ "$MODE" = "auto" ] && return 0
   read -r -p "$1 [y/N] " reply
   [ "$reply" = "y" ] || [ "$reply" = "Y" ]
 }
+
+report
+[ "$MODE" = "status" ] && exit 0
 
 # ── 第 1 类：apt（零风险）───────────────────────────────────────────────────
 if ask "清理 apt 缓存与索引（约 190M，零风险）？"; then
@@ -75,19 +171,40 @@ if ask "journald 收口到 50M（约回收 100M+，零风险）？"; then
   fi
 fi
 
-# ── 第 3 类：QQ 缓存（需 QQ 已停止；--full 或确认）──────────────────────────
-qq_running() {
-  pgrep -f 'opt/QQ/qq' >/dev/null 2>&1 && return 0
-  pgrep -f estrella-napcat >/dev/null 2>&1 && return 0
-  return 1
-}
-
+# ── 第 3 类：QQ 缓存（自动管理 QQ 生命周期：停→清→启）───────────────────────
 if [ "$FULL" -eq 1 ] || ask "清理 QQ 缓存（表情/日志/媒体，约 490M）？"; then
   if qq_running; then
-    echo "⚠️  检测到 QQ/NapCat 正在运行——缓存清理已跳过（防止写坏缓存）。"
-    echo "    先停 QQ/NapCat，再跑：./disk-cleanup.sh --full --auto"
-    log "QQ 缓存清理跳过（QQ 运行中）"
+    WAS_RUNNING=1
+    # 询问是否停止（auto 模式下 ask 恒真 = 自动停止；交互模式由用户决定）
+    if ask "QQ/NapCat 正在运行——停止它以清理缓存（结束后自动重启）？"; then
+      QQ_STOPPED_BY_US=1
+      qq_stop
+      if qq_wait_stopped; then
+        log "QQ 已确认停止，开始清理缓存"
+        # global 层：表情缓存 + QQ 内部日志
+        rm -rf /root/.config/QQ/nt_qq/global/nt_data/Emoji
+        rm -rf /root/.config/QQ/nt_qq/global/nt_data/Log
+        # 账号层：聊天媒体缓存（nt_db 数据库绝不触碰）
+        rm -rf /root/.config/QQ/nt_qq_*/nt_data/Pic
+        rm -rf /root/.config/QQ/nt_qq_*/nt_data/Video
+        rm -rf /root/.config/QQ/nt_qq_*/nt_data/File
+        rm -rf /root/.config/QQ/nt_qq_*/nt_data/Emoji
+        rm -rf /root/.config/QQ/nt_qq_*/nt_temp
+        rm -rf /root/.config/QQ/nt_qq/global/nt_temp
+        log "QQ 缓存清理完成（Emoji/Log/Pic/Video/File/temp）"
+        QQ_STOPPED_BY_US=0   # 清理完成，trap 不再重复拉起
+        qq_start             # 恢复 QQ（清理前它在跑）
+      else
+        echo "⚠️  QQ 停不掉（-9 强杀后仍存活）——跳过 QQ 缓存清理，继续其他项。"
+        log "QQ 停止失败，缓存清理跳过"
+        QQ_STOPPED_BY_US=0   # 没停成功，无需恢复
+      fi
+    else
+      echo "  已跳过 QQ 缓存清理（QQ 保持运行）。"
+      log "QQ 缓存清理跳过（用户选择不停 QQ）"
+    fi
   else
+    log "QQ 未运行，直接清理缓存"
     # global 层：表情缓存 + QQ 内部日志
     rm -rf /root/.config/QQ/nt_qq/global/nt_data/Emoji
     rm -rf /root/.config/QQ/nt_qq/global/nt_data/Log
@@ -99,6 +216,7 @@ if [ "$FULL" -eq 1 ] || ask "清理 QQ 缓存（表情/日志/媒体，约 490M�
     rm -rf /root/.config/QQ/nt_qq_*/nt_temp
     rm -rf /root/.config/QQ/nt_qq/global/nt_temp
     log "QQ 缓存清理完成（Emoji/Log/Pic/Video/File/temp）"
+    # WAS_RUNNING=0：清理前就没跑，结束后不主动拉起（原状恢复原则）
   fi
 fi
 
